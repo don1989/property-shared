@@ -46,6 +46,30 @@ RUN_LIVE_TESTS=1 uv run --extra dev --extra apps pytest       # live network tes
 uv run --extra dev --extra apps pytest tests/test_ppd_service_live.py -v
 ```
 
+## Fly.io Deployment — Two Apps, One Repo
+
+This repo deploys to **two separate Fly.io apps** with different Dockerfiles and configs:
+
+| App | Fly config | Dockerfile | URL | What it is |
+|-----|-----------|-----------|-----|------------|
+| `property-shared` | `fly.toml` | `Dockerfile` | property-shared.fly.dev | FastAPI REST API — core data layer, `/v1/health`, 2GB RAM |
+| `propertydata` | `fly.app.toml` | `Dockerfile.app` | propertydata.fly.dev | FastMCP MCP app — tools + Prefab dashboards, `/health`, 512MB |
+
+`propertydata` is what Claude connects to as an MCP server. `property-shared` is the REST API backend (also used by `uk-property-mcp` on PyPI).
+
+**Deploy manually:**
+```bash
+# property-shared (default)
+fly deploy --ha=false
+
+# propertydata (must specify config)
+fly deploy --config fly.app.toml --ha=false
+```
+
+**CI (release.yml)** — runs both on `release: published`. Requires two GitHub secrets:
+- `FLY_API_TOKEN` — scoped to `property-shared` (`fly tokens create deploy -a property-shared`)
+- `FLY_API_TOKEN_PROPERTYDATA` — scoped to `propertydata` (`fly tokens create deploy -a propertydata`)
+
 ## Architecture
 
 ```
@@ -85,15 +109,16 @@ app/                        # FastAPI service (thin HTTP wrapper)
 property_cli/               # Typer CLI (imports only from property_core)
 └── main.py                 # All commands; --api-url switches to HTTP mode
 
-mcp_server/                 # MCP server for AI hosts (wraps property_core)
-├── server.py               # FastMCP tools + resources
-└── mcp-app/                # Svelte UI for interactive results
+property_app/               # FastMCP MCP app server (4th consumer of property_core)
+├── server.py               # FastMCP tools + Prefab dashboards entry point
+├── tools.py                # @mcp.tool() definitions
+└── dashboards/             # Prefab UI dashboard views
 ```
 
 **Three-layer separation**:
 - Transport clients (HTTP/SPARQL → typed Pydantic models)
 - Domain services (orchestration → typed Pydantic models)
-- Consumer layers: API, MCP, CLI (all import directly from property_core)
+- Consumer layers: API, MCP app, CLI (all import directly from property_core)
 
 **Data flow**: Consumer → Core service (domain logic) → Core client (network)
 
