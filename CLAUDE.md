@@ -22,8 +22,8 @@ Property Shared is a FastAPI service + pure-Python core library for UK property 
 uv sync --extra dev
 
 # Run API server
-uv run property-api                              # production mode
-uv run uvicorn app.main:app --reload             # dev mode with reload
+uv run --env-file .env property-api              # production mode
+uv run --env-file .env uvicorn app.main:app --reload  # dev mode with reload
 
 # Run CLI (core mode - no server needed)
 uv run --extra cli property-cli meta
