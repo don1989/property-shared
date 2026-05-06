@@ -82,3 +82,23 @@ def test_metrics_scrapes_are_not_counted_as_app_traffic():
     metrics_text = client.get("/metrics").text
 
     assert 'route="/metrics"' not in metrics_text
+
+
+def test_metrics_use_fastapi_route_template_for_real_request():
+    app = FastAPI()
+
+    @app.get("/v1/report/{postcode}")
+    async def report(postcode: str):
+        return {"postcode": postcode}
+
+    setup_metrics(app)
+    app.add_middleware(HTTPMetricsMiddleware)
+
+    client = TestClient(app)
+    client.get("/v1/report/SW1A-1AA?secret=not-a-label")
+
+    metrics_text = client.get("/metrics").text
+
+    assert 'route="/v1/report/{postcode}"' in metrics_text
+    assert "SW1A-1AA" not in metrics_text
+    assert "secret=not-a-label" not in metrics_text

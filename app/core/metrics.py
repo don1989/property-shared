@@ -64,10 +64,8 @@ class HTTPMetricsMiddleware:
             await self.app(scope, receive, send)
             return
 
-        request = Request(scope, receive=receive)
         surface = _surface(path)
         method = scope.get("method", "GET")
-        route = _route_label(request, surface)
 
         start = time.perf_counter()
         status_code = 500
@@ -84,6 +82,10 @@ class HTTPMetricsMiddleware:
             elapsed = time.perf_counter() - start
             status = str(status_code)
             status_class = f"{status_code // 100}xx"
+
+            request = Request(scope)
+            route = _route_label(request, surface)
+
             HTTP_REQUESTS_TOTAL.labels(
                 surface=surface,
                 route=route,
