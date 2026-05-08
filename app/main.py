@@ -104,10 +104,11 @@ def create_app() -> FastAPI:
             "maintainers": [{"email": "paul@bouch.dev"}],
         }
 
-    from app.core.metrics import setup_metrics
+    from app.core.metrics import HTTPMetricsMiddleware, setup_metrics
     setup_metrics(app)
 
     app.add_middleware(MCPMiddleware, mcp_handler=_mcp_proxy)
+    app.add_middleware(HTTPMetricsMiddleware)
 
     return app
 
