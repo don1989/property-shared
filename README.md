@@ -8,7 +8,7 @@ UK property data in one package. Pulls Land Registry sales, EPC certificates, Ri
 
 Use it as a **Python library**, **CLI**, or **HTTP API**.
 
-> **MCP server moved:** The MCP server is now [`uk-property-mcp`](https://github.com/paulieb89/uk-property-mcp) — install with `pip install uk-property-mcp`. The old endpoint `https://property-shared.fly.dev/mcp` still works via a proxy for now.
+> **MCP server moved:** The MCP server is now [`uk-property-mcp`](https://github.com/paulieb89/uk-property-mcp) — install with `pip install uk-property-mcp`. `https://property-shared.fly.dev/mcp` remains available as a permanent proxy to `uk-property-mcp`.
 
 ## What You Get
 
