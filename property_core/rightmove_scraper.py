@@ -195,7 +195,7 @@ def _get_with_retries(
 
 # --- Listing detail helpers ---
 
-_PAGE_MODEL_RE = re.compile(r"window\.PAGE_MODEL\s*=\s*(\{.+?\})\s*\n", re.DOTALL)
+_PAGE_MODEL_RE = re.compile(r"window\.__PAGE_MODEL\s*=\s*(.+);")
 
 
 def _normalize_property_url(url_or_id: str) -> str:
@@ -206,16 +206,35 @@ def _normalize_property_url(url_or_id: str) -> str:
     return f"https://www.rightmove.co.uk/properties/{url_or_id}"
 
 
+def _decode_graph(nodes: list, idx: int, seen: frozenset = frozenset()) -> Any:
+    """Recursively dereference Rightmove's pointer-graph encoding.
+
+    Each node is either a primitive (returned as-is) or a dict/list whose
+    values are integer indices into the same nodes array.
+    """
+    if idx in seen:
+        return None
+    val = nodes[idx]
+    seen = seen | {idx}
+    if isinstance(val, dict):
+        return {k: _decode_graph(nodes, v, seen) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_decode_graph(nodes, i, seen) for i in val]
+    return val
+
+
 def _extract_page_model(html: str) -> Dict[str, Any]:
     """Extract PAGE_MODEL JSON from a Rightmove property detail page."""
     match = _PAGE_MODEL_RE.search(html)
     if not match:
         raise RightmoveError("Could not locate PAGE_MODEL data on the property page")
     try:
-        parsed = json.loads(match.group(1))
-    except json.JSONDecodeError as exc:
+        outer = json.loads(match.group(1))
+        nodes = json.loads(outer["data"])
+    except (json.JSONDecodeError, KeyError) as exc:
         raise RightmoveError(f"PAGE_MODEL contained invalid JSON: {exc}") from exc
-    property_data = parsed.get("propertyData")
+    root = _decode_graph(nodes, 0)
+    property_data = root.get("propertyData")
     if not property_data:
         raise RightmoveError("propertyData not found in PAGE_MODEL")
     return property_data
