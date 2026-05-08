@@ -19,7 +19,7 @@ from app.web.routes import router as demo_router
 # and neither Claude.ai nor ChatGPT follow 307 for POST requests.
 # Middleware routes /mcp directly without redirect.
 # ---------------------------------------------------------------------------
-_MCP_UPSTREAM = "https://propertydata.fly.dev"
+_MCP_UPSTREAM = "https://uk-property-mcp.fly.dev"
 _HOP_BY_HOP = frozenset([
     b"host", b"transfer-encoding", b"connection", b"keep-alive",
     b"proxy-authenticate", b"proxy-authorization", b"te", b"trailers", b"upgrade",
