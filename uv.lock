@@ -1175,7 +1175,7 @@ wheels = [
 
 [[package]]
 name = "property-shared"
-version = "1.7.5"
+version = "1.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -1190,6 +1190,7 @@ dependencies = [
 [package.optional-dependencies]
 api = [
     { name = "fastapi" },
+    { name = "fastmcp" },
     { name = "prometheus-client" },
     { name = "uvicorn" },
 ]
@@ -1218,6 +1219,7 @@ planning = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = "==4.14.3" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.128.0" },
+    { name = "fastmcp", marker = "extra == 'api'", specifier = ">=3.2.4" },
     { name = "fastmcp", extras = ["apps"], marker = "extra == 'apps'", specifier = "==3.2.4" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "jinja2", specifier = "==3.1.6" },
