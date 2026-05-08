@@ -5,6 +5,8 @@ Tools are real MCP tools (LLM-callable). Dashboards layer Prefab UI on top.
 """
 from __future__ import annotations
 
+from importlib.metadata import version as _pkg_version
+
 from fastmcp import FastMCP
 from fastmcp.server.middleware.caching import (
     CallToolSettings,
@@ -47,7 +49,7 @@ async def glama_claim(request):
 async def smithery_server_card(request):
     from starlette.responses import JSONResponse
 
-    return JSONResponse({"serverInfo": {"name": "property-app", "version": "1.5.2"}})
+    return JSONResponse({"serverInfo": {"name": "property-app", "version": _pkg_version("property-shared")}})
 
 
 @mcp.custom_route("/img", methods=["GET"])
@@ -70,21 +72,60 @@ async def proxy_image(request):
     )
 
 
+class _AcceptNormalizer:
+    """Stamp Accept to the MCP-spec value on /mcp only, so json_response=True never 406s.
+
+    Anthropic sends mixed Accept headers per request type (application/json for
+    initialize, text/event-stream for tools/list). Only stamp the MCP endpoint —
+    leave /health and other routes with their original Accept headers.
+    """
+    def __init__(self, app, mcp_path: bytes = b"/mcp"):
+        self.app = app
+        self._mcp_path = mcp_path.rstrip(b"/")
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and scope.get("path", "").rstrip("/").encode() == self._mcp_path:
+            headers = [
+                (b"accept", b"application/json, text/event-stream")
+                if name.lower() == b"accept"
+                else (name, value)
+                for name, value in scope.get("headers", [])
+            ]
+            scope = {**scope, "headers": headers}
+        await self.app(scope, receive, send)
+
+
 def main() -> None:
     import os
+    import uvicorn
+    from fastmcp.server.http import create_streamable_http_app
+
     # Import tool/dashboard modules so they register on mcp/app
     from property_app import tools  # noqa: F401
     from property_app.dashboards import comps, listings, rental, unified, yield_view  # noqa: F401
 
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
-    if transport not in ("stdio", "sse", "http"):
+    if transport not in ("stdio", "http"):
         transport = "stdio"
-    kwargs: dict = {}
-    if transport in ("sse", "http"):
-        kwargs["host"] = os.environ.get("FASTMCP_HOST", "0.0.0.0")
-        kwargs["port"] = int(os.environ.get("FASTMCP_PORT", "8080"))
-        kwargs["stateless_http"] = True
-    mcp.run(transport=transport, **kwargs)
+    if transport == "http":
+        port = int(os.environ.get("FASTMCP_PORT", "8080"))
+        app = create_streamable_http_app(
+            mcp,
+            streamable_http_path="/mcp",
+            json_response=True,
+            stateless_http=True,
+        )
+        uvicorn.run(
+            _AcceptNormalizer(app),
+            host=os.environ.get("FASTMCP_HOST", "0.0.0.0"),
+            port=port,
+            forwarded_allow_ips="*",
+            proxy_headers=True,
+            lifespan="on",
+            log_level="info",
+        )
+    else:
+        mcp.run()
 
 
 # 1h cache for read-only surfaces
