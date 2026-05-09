@@ -99,8 +99,8 @@ Built on FastMCP 3.2+ and Prefab UI 0.19+. All tools import directly from `prope
 
 ## Deployment
 
-Deployed on Fly.io as `propertydata`. To redeploy:
+Deployed on Fly.io as `propertydata`. CI (`release.yml`) deploys both apps automatically on `gh release create`. For a manual hotfix deploy:
 
 ```bash
-fly deploy --config fly.app.toml
+fly deploy --config fly.app.toml --ha=false
 ```
