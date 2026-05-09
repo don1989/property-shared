@@ -1,9 +1,8 @@
 {
   "mcpServers": {
-    "property": {
-      "command": "uvx",
-      "args": ["--from", "uk-property-mcp", "property-mcp"],
-      "env": {"MCP_TRANSPORT": "stdio"}
+    "property-shared-local": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp"
     },
     "openaiDeveloperDocs": {
       "type": "http",
