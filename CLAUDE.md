@@ -55,7 +55,7 @@ This repo deploys to **two separate Fly.io apps** with different Dockerfiles and
 | `property-shared` | `fly.toml` | `Dockerfile` | property-shared.fly.dev | FastAPI REST API — core data layer, `/v1/health`, 2GB RAM |
 | `propertydata` | `fly.app.toml` | `Dockerfile.app` | propertydata.fly.dev | FastMCP MCP app — tools + Prefab dashboards, `/health`, 512MB |
 
-`propertydata` is what Claude connects to as an MCP server. `property-shared` is the REST API backend (also used by `uk-property-mcp` on PyPI).
+`property-shared` exposes both the REST API (`/v1/`) and a plain MCP server (`/mcp`) — works in any MCP client. `propertydata` is the MCP app with Prefab UI dashboards — claude.ai only.
 
 **Deploy manually:**
 ```bash
@@ -102,6 +102,7 @@ property_core/              # Pure Python library (no FastAPI, no DB assumptions
 
 app/                        # FastAPI service (thin HTTP wrapper)
 ├── api/v1/                 # Versioned routers (import directly from property_core)
+├── mcp/server.py           # Plain FastMCP server — tools only, no Prefab UI (property-shared.fly.dev/mcp)
 ├── schemas/                # API envelope models (convenience re-exports from core)
 ├── core/config.py          # Settings via pydantic-settings (reads .env)
 └── web/                    # Demo UI at /demo
@@ -170,7 +171,13 @@ from property_core import (
 from property_core.planning_scraper import scrape_planning_application, search_planning_by_postcode
 ```
 
-## MCP Server
+## MCP Servers
 
-The MCP server (`mcp_server/`) wraps property_core for AI hosts (ChatGPT, Claude). See `mcp_server/README.md` for details.
-Path-specific rules load automatically when editing MCP server files.
+Two MCP servers, both in this repo:
+
+| Server | File | URL | Clients |
+|--------|------|-----|---------|
+| Plain tools | `app/mcp/server.py` | `property-shared.fly.dev/mcp` | Any MCP client |
+| MCP app + dashboards | `property_app/server.py` | `propertydata.fly.dev/mcp` | claude.ai only |
+
+Local dev: `.mcp.json` includes `property-shared-local` pointing to `http://localhost:8000/mcp` (the plain server, running via `property-api`).
