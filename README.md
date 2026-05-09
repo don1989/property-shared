@@ -4,7 +4,7 @@
 
 [![property-shared MCP server](https://glama.ai/mcp/servers/paulieb89/property-shared/badges/card.svg)](https://glama.ai/mcp/servers/paulieb89/property-shared)
 
-UK property data in one package. Pulls Land Registry sales, EPC certificates, Rightmove listings, rental yields, stamp duty calculations, planning portal links, and Companies House records.
+UK property data in one package. Pulls Land Registry sales, EPC certificates, Rightmove listings, Zoopla and OnTheMarket listings, rental yields, stamp duty calculations, planning portal links, and Companies House records.
 
 Use it as a **Python library**, **CLI**, or **HTTP API**.
 
@@ -17,6 +17,8 @@ Use it as a **Python library**, **CLI**, or **HTTP API**.
 | **Land Registry PPD** | Sold prices, dates, property types, area comps with median/percentiles |
 | **EPC Register** | Energy ratings, floor area, construction age, heating costs |
 | **Rightmove** | Current listings (sale + rent), prices, agents, listing details |
+| **Zoopla** | Search-result listings (sale + rent) — postcode-level market view *(search only; detail pages blocked by Cloudflare)* |
+| **OnTheMarket** | Current listings (sale + rent), prices, agents, listing details — tenure, lease years, ground rent, service charge, council tax band, EPC rating |
 | **Yield Analysis** | Gross yield from PPD sales + Rightmove rentals combined |
 | **Stamp Duty** | SDLT calculation with April 2025 bands, BTL surcharge, FTB relief |
 | **Block Analyzer** | Groups flat sales by building to spot investor exits |
@@ -68,6 +70,8 @@ All models are available at top level:
 from property_core import (
     PPDTransaction, PPDCompsResponse, EPCData,
     RightmoveListing, RightmoveListingDetail,
+    OnTheMarketListing, OnTheMarketListingDetail,
+    ZooplaListing,
     PropertyReport, YieldAnalysis, RentalAnalysis,
     BlockAnalysisResponse, CompanyRecord, StampDutyResult,
 )
@@ -95,6 +99,13 @@ property-cli calc stamp-duty 300000
 # Rightmove search (with sort)
 property-cli rightmove search-url "NG1 1AA" --sort-by most_reduced
 
+# OnTheMarket search + listing detail
+property-cli onthemarket search-url "NG1 1AA"
+property-cli onthemarket listing 19100332
+
+# Zoopla search (requires the planning extra: pip install property-shared[planning])
+property-cli zoopla search-url "NG1 1AA"
+
 # Full property report
 property-cli report generate "10 Downing Street, SW1A 2AA" --property-type F
 ```
@@ -115,6 +126,8 @@ Key endpoints:
 - `GET /v1/analysis/yield?postcode=NG1+1AA&property_type=F`
 - `GET /v1/analysis/rental?postcode=NG1+1AA&purchase_price=200000`
 - `GET /v1/rightmove/search-url?postcode=NG1+1AA&sort_by=newest`
+- `GET /v1/onthemarket/search-url?postcode=NG1+1AA` and `/v1/onthemarket/listings`, `/v1/onthemarket/listing/{id}`
+- `GET /v1/zoopla/search-url?postcode=NG1+1AA` and `/v1/zoopla/listings` *(requires `[planning]` extra)*
 - `GET /v1/calculators/stamp-duty?price=300000&additional_property=true`
 - `POST /v1/property/report` with `{ "address": "10 Downing Street, SW1A 2AA" }`
 

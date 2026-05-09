@@ -352,6 +352,195 @@ def rightmove_search(
 
 
 # ---------------------------------------------------------------------------
+# 6. Zoopla search
+# ---------------------------------------------------------------------------
+
+
+def search_zoopla(
+    postcode: str,
+    property_type: str = "sale",
+    min_bedrooms: int | None = None,
+    max_price: int | None = None,
+    radius: float | None = None,
+    building_type: str | None = None,
+) -> dict:
+    """Raw Zoopla search — returns dict. Used by the MCP tool and tests.
+
+    Note: Zoopla detail pages are blocked by Cloudflare; only search-card
+    data is available.
+    """
+    from statistics import median as stat_median
+
+    from property_core import ZooplaLocationAPI, fetch_zoopla_listings
+
+    loc_api = ZooplaLocationAPI()
+    search_url = loc_api.build_search_url(
+        postcode,
+        property_type=property_type,
+        min_bedrooms=min_bedrooms,
+        max_price=max_price,
+        radius=radius,
+        building_type=building_type,
+    )
+
+    listings = fetch_zoopla_listings(search_url, max_pages=1)
+    prices = [l.price for l in listings if l.price and l.price > 0]
+    median_price = int(stat_median(prices)) if prices else None
+
+    return {
+        "search_url": search_url,
+        "count": len(listings),
+        "listings": [_slim(l.model_dump(mode="json")) for l in listings],
+        "median_price": median_price,
+    }
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"zoopla", "listings"},
+    timeout=120.0,
+)
+def zoopla_search(
+    postcode: Annotated[str, Field(description="UK postcode or area name to search")],
+    property_type: Annotated[str, Field(description="'sale' or 'rent'")] = "sale",
+    min_bedrooms: Annotated[
+        int | None, Field(description="Minimum number of bedrooms")
+    ] = None,
+    max_price: Annotated[
+        int | None, Field(description="Maximum price filter")
+    ] = None,
+    radius: Annotated[
+        float | None, Field(description="Search radius in miles")
+    ] = None,
+    building_type: Annotated[
+        str | None,
+        Field(description="Building type filter: F=flat, D=detached, S=semi, T=terraced"),
+    ] = None,
+) -> dict:
+    """Search Zoopla property listings by postcode.
+
+    Builds a search URL, fetches the first page via headless Playwright,
+    and returns listing summaries with a median price. Zoopla per-listing
+    detail pages are not currently scrapable (Cloudflare Turnstile).
+    """
+    return search_zoopla(
+        postcode,
+        property_type=property_type,
+        min_bedrooms=min_bedrooms,
+        max_price=max_price,
+        radius=radius,
+        building_type=building_type,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 7. OnTheMarket search + listing detail
+# ---------------------------------------------------------------------------
+
+
+def search_onthemarket(
+    postcode: str,
+    property_type: str = "sale",
+    min_bedrooms: int | None = None,
+    max_price: int | None = None,
+    radius: float | None = None,
+    building_type: str | None = None,
+) -> dict:
+    """Raw OnTheMarket search — returns dict."""
+    from statistics import median as stat_median
+
+    from property_core import OnTheMarketLocationAPI, fetch_onthemarket_listings
+
+    loc_api = OnTheMarketLocationAPI()
+    search_url = loc_api.build_search_url(
+        postcode,
+        property_type=property_type,
+        min_bedrooms=min_bedrooms,
+        max_price=max_price,
+        radius=radius,
+        building_type=building_type,
+    )
+
+    listings = fetch_onthemarket_listings(search_url, max_pages=1)
+    prices = [l.price for l in listings if l.price and l.price > 0]
+    median_price = int(stat_median(prices)) if prices else None
+
+    return {
+        "search_url": search_url,
+        "count": len(listings),
+        "listings": [_slim(l.model_dump(mode="json")) for l in listings],
+        "median_price": median_price,
+    }
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"onthemarket", "listings"},
+    timeout=60.0,
+)
+def onthemarket_search(
+    postcode: Annotated[str, Field(description="UK postcode or area name to search")],
+    property_type: Annotated[str, Field(description="'sale' or 'rent'")] = "sale",
+    min_bedrooms: Annotated[
+        int | None, Field(description="Minimum number of bedrooms")
+    ] = None,
+    max_price: Annotated[
+        int | None, Field(description="Maximum price filter")
+    ] = None,
+    radius: Annotated[
+        float | None, Field(description="Search radius in miles")
+    ] = None,
+    building_type: Annotated[
+        str | None,
+        Field(description="Building type filter: F=flat, D=detached, S=semi, T=terraced"),
+    ] = None,
+) -> dict:
+    """Search OnTheMarket property listings by postcode.
+
+    Builds a search URL, fetches the first page, and returns listing
+    summaries with a median price.
+    """
+    return search_onthemarket(
+        postcode,
+        property_type=property_type,
+        min_bedrooms=min_bedrooms,
+        max_price=max_price,
+        radius=radius,
+        building_type=building_type,
+    )
+
+
+def lookup_onthemarket_listing(property_id: str) -> dict:
+    """Raw OnTheMarket listing detail — returns dict."""
+    from property_core import fetch_onthemarket_listing
+
+    listing = fetch_onthemarket_listing(property_id)
+    return _slim(listing.model_dump(mode="json"))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"onthemarket", "listings"},
+    timeout=30.0,
+)
+def onthemarket_listing(
+    property_id: Annotated[
+        str,
+        Field(
+            description="OnTheMarket property id (numeric, e.g. '19100332') or full URL"
+        ),
+    ],
+) -> dict:
+    """Full property detail data for an OnTheMarket listing.
+
+    Returns price, address, postcode, channel (sale/rent), tenure, lease
+    years remaining, ground rent, service charge, council tax band, EPC
+    rating, hero images, and the verbatim Key information block.
+    """
+    return lookup_onthemarket_listing(property_id)
+
+
+# ---------------------------------------------------------------------------
 # Component Test (temporary — maps what claude.ai renderer supports)
 # ---------------------------------------------------------------------------
 

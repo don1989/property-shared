@@ -33,17 +33,28 @@ from property_core.stamp_duty import StampDutyResult, calculate_stamp_duty
 from property_core.yield_service import calculate_yield
 from property_core.rightmove_location import RightmoveLocationAPI
 from property_core.rightmove_scraper import fetch_listing, fetch_listings
+from property_core.models.onthemarket import OnTheMarketListing, OnTheMarketListingDetail
+from property_core.models.zoopla import ZooplaListing
+from property_core.onthemarket_location import OnTheMarketLocationAPI
+from property_core.onthemarket_scraper import (
+    fetch_listing as fetch_onthemarket_listing,
+    fetch_listings as fetch_onthemarket_listings,
+)
+from property_core.zoopla_location import ZooplaLocationAPI
+from property_core.zoopla_scraper import fetch_listings as fetch_zoopla_listings
 
 __all__ = [
     # Services
     "CompaniesHouseClient",
     "EPCClient",
+    "OnTheMarketLocationAPI",
     "PlanningService",
     "PostcodeClient",
     "PPDService",
     "PricePaidDataClient",
     "PropertyReportService",
     "RightmoveLocationAPI",
+    "ZooplaLocationAPI",
     # Functions
     "analyze_blocks",
     "analyze_rentals",
@@ -57,6 +68,9 @@ __all__ = [
     "estimate_value_range",
     "fetch_listing",
     "fetch_listings",
+    "fetch_onthemarket_listing",
+    "fetch_onthemarket_listings",
+    "fetch_zoopla_listings",
     "generate_insights",
     "match_epc_address",
     # Models
@@ -65,6 +79,8 @@ __all__ = [
     "CompanyRecord",
     "CompanySearchResult",
     "EPCData",
+    "OnTheMarketListing",
+    "OnTheMarketListingDetail",
     "PostcodeResult",
     "PPDCompsResponse",
     "PPDTransaction",
@@ -75,4 +91,5 @@ __all__ = [
     "RightmoveListingDetail",
     "StampDutyResult",
     "YieldAnalysis",
+    "ZooplaListing",
 ]

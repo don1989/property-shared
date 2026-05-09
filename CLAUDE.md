@@ -10,6 +10,8 @@ Property Shared is a FastAPI service + pure-Python core library for UK property 
 - **PPD** (Price Paid Data) - Land Registry transactions via SPARQL/Linked Data API
 - **EPC** - Energy Performance Certificates (requires API credentials)
 - **Rightmove** - Property listings via scraping with built-in politeness
+- **Zoopla** - Search-result listings via headless Playwright (search only — listing detail pages blocked by Cloudflare Turnstile; requires `[planning]` extra)
+- **OnTheMarket** - Search-result listings + listing detail via plain `requests`; tenure / lease / EPC / council tax extracted from the Key information section
 - **Planning** - UK council planning applications via vision-guided browser automation (99 verified councils)
 - **Stamp Duty** - SDLT calculator with April 2025 bands, additional property/FTB/non-resident surcharges
 - **Block Analyzer** - Groups PPD transactions by building to find bulk-buy opportunities
@@ -85,6 +87,10 @@ property_core/              # Pure Python library (no FastAPI, no DB assumptions
 ├── epc_client.py           # Transport: EPC registry (async) → typed EPCData models
 ├── rightmove_scraper.py    # Transport: listings scraper (sync) → typed Pydantic models
 ├── rightmove_location.py   # Transport: search URL builder (sync)
+├── onthemarket_scraper.py  # Transport: OnTheMarket scraper (sync, requests-based) → typed models
+├── onthemarket_location.py # Transport: OnTheMarket search URL builder (sync)
+├── zoopla_scraper.py       # Transport: Zoopla search scraper (sync, Playwright) → typed models
+├── zoopla_location.py      # Transport: Zoopla search URL builder (sync)
 ├── postcode_client.py      # Transport: postcodes.io → typed PostcodeResult model
 ├── companies_house_client.py # Transport: Companies House API (sync httpx, basic auth)
 ├── ppd_service.py          # Domain service: PPD comps, search, stats (sync)

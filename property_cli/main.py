@@ -23,6 +23,13 @@ from property_core.epc_client import EPCClient
 
 from property_core.rightmove_location import RightmoveLocationAPI
 from property_core.rightmove_scraper import fetch_listing, fetch_listings
+from property_core.onthemarket_location import OnTheMarketLocationAPI
+from property_core.onthemarket_scraper import (
+    fetch_listing as fetch_onthemarket_listing,
+    fetch_listings as fetch_onthemarket_listings,
+)
+from property_core.zoopla_location import ZooplaLocationAPI
+from property_core.zoopla_scraper import fetch_listings as fetch_zoopla_listings
 
 try:
     import httpx
@@ -593,6 +600,181 @@ def rightmove_listing(
     if include_raw and detail.get("raw"):
         rprint("\n[bold]Raw data:[/bold]")
         rprint(json.dumps(detail["raw"], indent=2, default=str)[:5000])
+
+
+zoopla = typer.Typer(help="Zoopla commands (search only — detail pages blocked by Cloudflare)")
+app.add_typer(zoopla, name="zoopla")
+
+
+@zoopla.command("search-url")
+def zoopla_search_url(
+    postcode: list[str] = typer.Argument(..., help="Postcode or area name"),
+    property_type: str = typer.Option("sale"),
+    building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
+    radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    postcode_value = _join_tokens(postcode)
+    http = _maybe_http_client(api_url)
+    if http:
+        params: dict = {"postcode": postcode_value, "property_type": property_type}
+        if building_type:
+            params["building_type"] = building_type
+        if radius is not None:
+            params["radius"] = radius
+        data = http.get("/v1/zoopla/search-url", params=params)
+        typer.echo(data.get("url"))
+    else:
+        url = ZooplaLocationAPI().build_search_url(
+            postcode_value,
+            property_type=property_type,
+            building_type=building_type,
+            radius=radius,
+        )
+        typer.echo(url)
+
+
+@zoopla.command("listings")
+def zoopla_listings(
+    search_url: str = typer.Argument(...),
+    max_pages: Optional[int] = typer.Option(1),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    """Fetch Zoopla search results via headless Playwright."""
+    http = _maybe_http_client(api_url)
+    if http:
+        data = http.get(
+            "/v1/zoopla/listings",
+            params={"search_url": search_url, "max_pages": max_pages},
+        )
+        listings = data.get("results", [])
+    else:
+        listings = [l.model_dump() for l in fetch_zoopla_listings(search_url, max_pages=max_pages)]
+
+    table = Table(title=f"Zoopla listings ({len(listings)})")
+    table.add_column("Price", justify="right")
+    table.add_column("Beds", justify="right")
+    table.add_column("Baths", justify="right")
+    table.add_column("SqFt", justify="right")
+    table.add_column("Address")
+    for item in listings[:20]:
+        table.add_row(
+            f"£{item.get('price'):,}" if item.get("price") else "—",
+            str(item.get("bedrooms") or "—"),
+            str(item.get("bathrooms") or "—"),
+            str(item.get("floor_area_sqft") or "—"),
+            item.get("address") or "",
+        )
+    rprint(table)
+    if len(listings) > 20:
+        typer.echo(f"...and {len(listings) - 20} more")
+
+
+otm = typer.Typer(help="OnTheMarket commands")
+app.add_typer(otm, name="onthemarket")
+
+
+@otm.command("search-url")
+def otm_search_url(
+    postcode: list[str] = typer.Argument(..., help="Postcode or area name"),
+    property_type: str = typer.Option("sale"),
+    building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
+    radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    postcode_value = _join_tokens(postcode)
+    http = _maybe_http_client(api_url)
+    if http:
+        params: dict = {"postcode": postcode_value, "property_type": property_type}
+        if building_type:
+            params["building_type"] = building_type
+        if radius is not None:
+            params["radius"] = radius
+        data = http.get("/v1/onthemarket/search-url", params=params)
+        typer.echo(data.get("url"))
+    else:
+        url = OnTheMarketLocationAPI().build_search_url(
+            postcode_value,
+            property_type=property_type,
+            building_type=building_type,
+            radius=radius,
+        )
+        typer.echo(url)
+
+
+@otm.command("listings")
+def otm_listings(
+    search_url: str = typer.Argument(...),
+    max_pages: Optional[int] = typer.Option(1),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    """Fetch OnTheMarket search results."""
+    http = _maybe_http_client(api_url)
+    if http:
+        data = http.get(
+            "/v1/onthemarket/listings",
+            params={"search_url": search_url, "max_pages": max_pages},
+        )
+        listings = data.get("results", [])
+    else:
+        listings = [l.model_dump() for l in fetch_onthemarket_listings(search_url, max_pages=max_pages)]
+
+    table = Table(title=f"OnTheMarket listings ({len(listings)})")
+    table.add_column("Price", justify="right")
+    table.add_column("Beds", justify="right")
+    table.add_column("Baths", justify="right")
+    table.add_column("Status")
+    table.add_column("Address")
+    for item in listings[:20]:
+        table.add_row(
+            f"£{item.get('price'):,}" if item.get("price") else "—",
+            str(item.get("bedrooms") or "—"),
+            str(item.get("bathrooms") or "—"),
+            item.get("status") or "",
+            item.get("address") or "",
+        )
+    rprint(table)
+    if len(listings) > 20:
+        typer.echo(f"...and {len(listings) - 20} more")
+
+
+@otm.command("listing")
+def otm_listing(
+    url_or_id: str = typer.Argument(..., help="OnTheMarket property URL or numeric ID"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    """Fetch full details for an individual OnTheMarket listing."""
+    http = _maybe_http_client(api_url)
+    if http:
+        prop_id = url_or_id.strip().rstrip("/").split("/")[-1] if "/" in url_or_id else url_or_id
+        data = http.get(f"/v1/onthemarket/listing/{prop_id}")
+        detail = data.get("result", {})
+    else:
+        detail = fetch_onthemarket_listing(url_or_id).model_dump()
+
+    table = Table(title=f"OnTheMarket: {detail.get('title') or detail.get('addressline_2') or url_or_id}")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("Price", f"£{detail['price']:,}" if detail.get("price") else "—")
+    table.add_row("Postcode", detail.get("postcode") or "—")
+    table.add_row("Address line", detail.get("addressline_2") or "—")
+    table.add_row("Channel", detail.get("channel") or "—")
+    table.add_row("Status", detail.get("status") or "—")
+    table.add_row("Property type", detail.get("property_type") or "—")
+    table.add_row("Tenure", detail.get("tenure") or "—")
+    table.add_row("Lease remaining", f"{detail['years_remaining_on_lease']} years" if detail.get("years_remaining_on_lease") else "—")
+    table.add_row("Ground rent", f"£{detail['annual_ground_rent']:,}/yr" if detail.get("annual_ground_rent") else "—")
+    table.add_row("Service charge", f"£{detail['annual_service_charge']:,}/yr" if detail.get("annual_service_charge") else "—")
+    table.add_row("Council tax band", detail.get("council_tax_band") or "—")
+    table.add_row("EPC rating", detail.get("epc_rating") or "—")
+    table.add_row("Branch id", str(detail.get("branch_id") or "—"))
+    table.add_row("Images", str(len(detail.get("images") or [])))
+    rprint(table)
+
+    desc = detail.get("description")
+    if desc:
+        rprint("\n[bold]Description:[/bold]")
+        rprint(desc[:1500] + ("..." if len(desc) > 1500 else ""))
 
 
 planning = typer.Typer(help="Planning portal commands")

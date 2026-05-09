@@ -177,6 +177,84 @@ def rightmove_listing(
 
 
 @mcp.tool()
+async def zoopla_search(
+    postcode: str,
+    listing_type: str = "sale",
+    radius: float | None = None,
+    property_type: str | None = None,
+    min_bedrooms: int | None = None,
+    max_price: int | None = None,
+    max_pages: int = 1,
+) -> list[dict]:
+    """Fetch Zoopla listings for a postcode (search only).
+
+    listing_type: "sale" or "rent". property_type: F=flat, D=detached,
+    S=semi, T=terraced. Zoopla detail pages are blocked by Cloudflare,
+    so only search-card data is available.
+    """
+    import anyio
+    from property_core import ZooplaLocationAPI, fetch_zoopla_listings
+    loc_api = ZooplaLocationAPI()
+    search_url = loc_api.build_search_url(
+        postcode,
+        property_type=listing_type,
+        building_type=property_type,
+        min_bedrooms=min_bedrooms,
+        max_price=max_price,
+        radius=radius,
+    )
+    listings = await anyio.to_thread.run_sync(
+        lambda: fetch_zoopla_listings(search_url, max_pages=max_pages)
+    )
+    return [l.model_dump(exclude={"images"}) for l in listings]
+
+
+@mcp.tool()
+async def onthemarket_search(
+    postcode: str,
+    listing_type: str = "sale",
+    radius: float | None = None,
+    property_type: str | None = None,
+    min_bedrooms: int | None = None,
+    max_price: int | None = None,
+    max_pages: int = 1,
+) -> list[dict]:
+    """Fetch OnTheMarket listings for a postcode.
+
+    listing_type: "sale" or "rent". property_type: F=flat, D=detached,
+    S=semi, T=terraced.
+    """
+    import anyio
+    from property_core import OnTheMarketLocationAPI, fetch_onthemarket_listings
+    loc_api = OnTheMarketLocationAPI()
+    search_url = loc_api.build_search_url(
+        postcode,
+        property_type=listing_type,
+        building_type=property_type,
+        min_bedrooms=min_bedrooms,
+        max_price=max_price,
+        radius=radius,
+    )
+    listings = await anyio.to_thread.run_sync(
+        lambda: fetch_onthemarket_listings(search_url, max_pages=max_pages)
+    )
+    return [l.model_dump(exclude={"images"}) for l in listings]
+
+
+@mcp.tool()
+def onthemarket_listing(
+    property_url_or_id: str,
+    include_images: bool = False,
+) -> dict:
+    """Full detail for a single OnTheMarket listing (URL or numeric ID)."""
+    from property_core import fetch_onthemarket_listing
+    result = fetch_onthemarket_listing(property_url_or_id)
+    if include_images:
+        return result.model_dump()
+    return result.model_dump(exclude={"images"})
+
+
+@mcp.tool()
 async def property_blocks(
     postcode: str,
     search_level: str = "sector",

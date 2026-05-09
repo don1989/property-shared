@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.10.0 (2026-05-09)
+
+### New Features
+- **OnTheMarket scraper** (search + listing detail). New transport
+  `property_core/onthemarket_scraper.py` with `fetch_listings(search_url)`
+  and `fetch_listing(url_or_id)`. Plain `requests` + BeautifulSoup; cards
+  parsed via Schema.org microdata, detail pages via `dataLayer.push({...})`
+  and a `<h2>Key information</h2>` section (tenure, lease years,
+  ground rent, service charge, council tax band, EPC rating).
+- **Zoopla scraper** (search only). New transport
+  `property_core/zoopla_scraper.py` with `fetch_listings(search_url)`
+  via headless Playwright. Listing detail pages are gated behind a
+  Cloudflare Turnstile interstitial that does not auto-resolve in
+  headless Chromium, so `fetch_listing()` is intentionally not provided.
+  Requires the `planning` extra (`pip install 'property-shared[planning]'`
+  + `playwright install chromium`).
+- **URL builders**: `OnTheMarketLocationAPI` and `ZooplaLocationAPI` —
+  pure-string builders that turn a postcode/area name + filters into
+  search URLs.
+- **Models**: `OnTheMarketListing`, `OnTheMarketListingDetail`, `ZooplaListing`
+  in `property_core.models`.
+- **Consumers wired up**:
+  - **API**: `/v1/zoopla/search-url`, `/v1/zoopla/listings`,
+    `/v1/onthemarket/search-url`, `/v1/onthemarket/listings`,
+    `/v1/onthemarket/listing/{id}`.
+  - **MCP** (both `app/mcp/server.py` and `property_app/tools.py`):
+    `zoopla_search`, `onthemarket_search`, `onthemarket_listing`.
+  - **CLI**: `property-cli zoopla search-url|listings`,
+    `property-cli onthemarket search-url|listings|listing`.
+- **Discovery report** committed at `docs/zoopla-onthemarket-discovery.md`
+  documenting verbatim field provenance, blocking constraints, and
+  selector strategy.
+
 ## v1.4.0 (2026-03-28)
 
 ### New Features
