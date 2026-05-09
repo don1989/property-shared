@@ -5,11 +5,14 @@ regardless of ext-apps / Prefab UI support.
 """
 from __future__ import annotations
 
+from importlib.metadata import version as _pkg_version
+
 from fastmcp import FastMCP
 from fastmcp.server.http import create_streamable_http_app
 
 mcp = FastMCP(
     "property-data",
+    version=_pkg_version("property-shared"),
     instructions=(
         "UK property data tools. Use property_report for a full data pull when you "
         "have a street address + postcode. For postcode-only queries use property_comps "
