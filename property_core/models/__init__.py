@@ -34,6 +34,8 @@ from property_core.models.report import (
     YieldAnalysis,
 )
 from property_core.models.rightmove import RightmoveListingDetail, RightmoveListing
+from property_core.models.zoopla import ZooplaListing
+from property_core.models.onthemarket import OnTheMarketListing, OnTheMarketListingDetail
 
 __all__ = [
     "BlockAnalysisResponse",
@@ -51,6 +53,8 @@ __all__ = [
     "EnergyPerformance",
     "LocalAuthority",
     "MarketAnalysis",
+    "OnTheMarketListing",
+    "OnTheMarketListingDetail",
     "PPDCompsQuery",
     "PPDCompsResponse",
     "PPDTransaction",
@@ -65,4 +69,5 @@ __all__ = [
     "SearchUrls",
     "SubjectProperty",
     "YieldAnalysis",
+    "ZooplaListing",
 ]

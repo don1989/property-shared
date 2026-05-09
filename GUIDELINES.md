@@ -44,6 +44,10 @@ Three-layer pattern:
 | `report_service.py` | Multi-source report orchestrator |
 | `rightmove_location.py` | Rightmove search URL builder |
 | `rightmove_scraper.py` | Rightmove listings scraper |
+| `onthemarket_location.py` | OnTheMarket search URL builder |
+| `onthemarket_scraper.py` | OnTheMarket listings + detail scraper (requests + BeautifulSoup) |
+| `zoopla_location.py` | Zoopla search URL builder |
+| `zoopla_scraper.py` | Zoopla search scraper (Playwright; detail blocked by Cloudflare) |
 | `stamp_duty.py` | SDLT calculator (April 2025 bands) |
 | `yield_service.py` | Yield analysis: PPD sales + Rightmove rentals |
 
