@@ -11,7 +11,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.web.routes import router as demo_router
 from app.core.middleware import _AcceptNormalizer
-from app.mcp.server import build_asgi_app
+from app.mcp.server import build_asgi_app, _http_app as _mcp_http_app
 
 
 # Can't use app.mount("/mcp") — Starlette always 307-redirects /mcp → /mcp/
@@ -43,7 +43,8 @@ class MCPMiddleware:
 async def lifespan(app: FastAPI):
     _ = get_settings()
     configure_logging()
-    yield
+    async with _mcp_http_app.lifespan(app):
+        yield
 
 
 def create_app() -> FastAPI:

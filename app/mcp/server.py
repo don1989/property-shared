@@ -179,11 +179,14 @@ def ppd_transactions(
     )
 
 
+_http_app = create_streamable_http_app(
+    mcp,
+    streamable_http_path="/mcp",
+    json_response=True,
+    stateless_http=True,
+)
+
+
 def build_asgi_app():
     """Streamable-HTTP ASGI app for MCPMiddleware in app/main.py."""
-    return create_streamable_http_app(
-        mcp,
-        streamable_http_path="/mcp",
-        json_response=True,
-        stateless_http=True,
-    )
+    return _http_app
