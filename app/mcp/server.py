@@ -17,32 +17,46 @@ mcp = FastMCP(
         "UK property data tools. Use property_report for a full data pull when you "
         "have a street address + postcode. For postcode-only queries use property_comps "
         "and property_yield separately. ppd_transactions for specific property history, "
-        "rightmove_search to browse listings, rightmove_listing for full detail on one "
-        "listing, property_epc for energy certificates, rental_analysis for rental market "
-        "figures, stamp_duty for SDLT, property_blocks for block-buy analysis, "
-        "planning_search for council planning portals, company_search to find a company "
-        "by name."
+        "rightmove_search to browse listings by postcode, rightmove_listing for full "
+        "detail on one listing, property_epc for energy certificates, rental_analysis "
+        "for rental market figures, stamp_duty for SDLT, property_blocks for block-buy "
+        "analysis, planning_search for council planning portals, company_search to find "
+        "a company by name."
     ),
 )
 
 
 @mcp.tool()
-def property_comps(
+async def property_comps(
     postcode: str,
     months: int = 24,
     property_type: str | None = None,
     search_level: str = "sector",
     address: str | None = None,
+    limit: int = 50,
+    enrich_epc: bool = False,
 ) -> dict:
-    """Comparable sales from Land Registry Price Paid Data."""
+    """Comparable sales from Land Registry Price Paid Data.
+
+    limit caps returned transactions (max 200). enrich_epc attaches EPC floor
+    area and price-per-sqft to each transaction — slower but richer.
+    """
     from property_core import PPDService
-    return PPDService().comps(
+    result = PPDService().comps(
         postcode=postcode,
         months=months,
         property_type=property_type,
         search_level=search_level,
         address=address,
-    ).model_dump()
+        limit=limit,
+    )
+    if enrich_epc and result.transactions:
+        from property_core import EPCClient
+        from property_core.enrichment import compute_enriched_stats, enrich_comps_with_epc
+        epc = EPCClient()
+        await enrich_comps_with_epc(result.transactions, epc)
+        compute_enriched_stats(result)
+    return result.model_dump()
 
 
 @mcp.tool()
@@ -67,13 +81,20 @@ async def rental_analysis(
     postcode: str,
     radius: float = 0.5,
     purchase_price: int | None = None,
+    auto_escalate: bool = True,
 ) -> dict:
-    """Rental market analysis and achievable rent estimate."""
+    """Rental market analysis and achievable rent estimate.
+
+    auto_escalate widens the search area when fewer than 5 listings are found
+    (thin market). Response includes thin_market, escalated_from, escalated_to
+    fields when escalation occurs.
+    """
     from property_core import analyze_rentals
     return (await analyze_rentals(
         postcode=postcode,
         radius=radius,
         purchase_price=purchase_price,
+        auto_escalate=auto_escalate,
     )).model_dump()
 
 
@@ -103,21 +124,56 @@ def stamp_duty(
 
 
 @mcp.tool()
-async def rightmove_search(url: str, max_pages: int = 3) -> list[dict]:
-    """Fetch Rightmove listings from a search URL."""
+async def rightmove_search(
+    postcode: str,
+    listing_type: str = "sale",
+    radius: float = 0.5,
+    property_type: str | None = None,
+    min_bedrooms: int | None = None,
+    max_price: int | None = None,
+    sort_by: str | None = None,
+    max_pages: int = 3,
+) -> list[dict]:
+    """Fetch Rightmove listings for a postcode.
+
+    listing_type: "sale" or "rent". sort_by: "newest", "most_reduced",
+    "price_asc", "price_desc". Images are excluded from results.
+    """
     import anyio
-    from property_core import fetch_listings
+    from property_core import RightmoveLocationAPI, fetch_listings
+    loc_api = RightmoveLocationAPI()
+    search_url = await anyio.to_thread.run_sync(
+        lambda: loc_api.build_search_url(
+            postcode,
+            property_type=listing_type,
+            building_type=property_type,
+            min_bedrooms=min_bedrooms,
+            max_price=max_price,
+            radius=radius,
+            sort_by=sort_by,
+        )
+    )
     listings = await anyio.to_thread.run_sync(
-        lambda: fetch_listings(url, max_pages=max_pages)
+        lambda: fetch_listings(search_url, max_pages=max_pages)
     )
     return [l.model_dump(exclude={"images"}) for l in listings]
 
 
 @mcp.tool()
-def rightmove_listing(property_url_or_id: str) -> dict:
-    """Full detail for a single Rightmove listing (URL or numeric ID)."""
+def rightmove_listing(
+    property_url_or_id: str,
+    include_images: bool = False,
+) -> dict:
+    """Full detail for a single Rightmove listing (URL or numeric ID).
+
+    include_images returns photo and floorplan URLs — useful for eval fixtures
+    but adds significant payload size.
+    """
     from property_core import fetch_listing
-    return fetch_listing(property_url_or_id).model_dump()
+    result = fetch_listing(property_url_or_id)
+    if include_images:
+        return result.model_dump()
+    return result.model_dump(exclude={"images", "floorplans"})
 
 
 @mcp.tool()
