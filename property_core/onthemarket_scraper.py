@@ -81,6 +81,9 @@ def fetch_listings(
     listings: List[OnTheMarketListing] = []
     next_url: str | None = search_url
     page_counter = 0
+    # Honour an existing ?page=N in the caller's URL: subsequent pages step
+    # forward from there.
+    starting_page = _starting_page(search_url)
     seen_urls: set[str] = set()
     session = Session()
 
@@ -109,9 +112,19 @@ def fetch_listings(
         if not page_listings:
             break
 
-        next_url = _next_page_url(search_url, page_counter + 1)
+        next_url = _next_page_url(search_url, starting_page + page_counter)
 
     return listings
+
+
+def _starting_page(search_url: str) -> int:
+    """Return the ``page=N`` value from ``search_url``, defaulting to ``1``."""
+    parsed = urlparse(search_url)
+    query_items = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    try:
+        return max(1, int(query_items.get("page", "1")))
+    except (TypeError, ValueError):
+        return 1
 
 
 def fetch_listing(
@@ -245,15 +258,24 @@ def _parse_search_card(card: Tag) -> Optional[OnTheMarketListing]:
 
     bedrooms_text: str | None = None
     bathrooms_text: str | None = None
+    # Bedrooms have a canonical Schema.org hook; prefer it over span position.
+    bedroom_el = card.find(attrs={"itemprop": "numberOfBedrooms"})
+    if bedroom_el is not None:
+        bedrooms_text = bedroom_el.get_text(strip=True) or None
     bb = card.find(attrs={"data-component": "BedBathCounts"})
     if bb is not None:
-        spans = bb.find_all("span", recursive=True)
-        # First span is bedrooms (also itemprop=numberOfBedrooms);
-        # the immediately following span is bathrooms.
-        if len(spans) >= 1:
-            bedrooms_text = spans[0].get_text(strip=True)
-        if len(spans) >= 2:
-            bathrooms_text = spans[1].get_text(strip=True)
+        # Bathrooms have no itemprop, but BedBathCounts is always
+        # "<bedrooms span> <bathrooms span>" — pick the second span with
+        # non-empty digit text to skip any decorative/icon spans.
+        digit_spans = [
+            s.get_text(strip=True)
+            for s in bb.find_all("span")
+            if s.get_text(strip=True).strip().isdigit()
+        ]
+        if bedrooms_text is None and digit_spans:
+            bedrooms_text = digit_spans[0]
+        if len(digit_spans) >= 2:
+            bathrooms_text = digit_spans[1]
 
     address = _text_or_none(card.find(attrs={"itemprop": "address"}))
 
@@ -320,7 +342,7 @@ def _parse_search_card(card: Tag) -> Optional[OnTheMarketListing]:
         agent_name=agent_name,
         agent_telephone=agent_telephone,
         images=images,
-        raw=None,
+        raw={"html": str(card)},
     )
 
 

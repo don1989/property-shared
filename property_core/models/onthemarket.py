@@ -51,6 +51,19 @@ def _parse_float(text: str | None) -> Optional[float]:
         return None
 
 
+def _coerce_str(val: Any) -> Optional[str]:
+    """Coerce a dataLayer value to ``str | None``.
+
+    OnTheMarket's dataLayer pushes strings 99% of the time, but a redeploy
+    could ship an int (e.g. ``branch-id``-shaped values mistakenly under a
+    string key). Pydantic 2 rejects ``int`` for an ``Optional[str]`` field,
+    so coerce here rather than crash mid-scrape.
+    """
+    if val is None or val == "":
+        return None
+    return str(val)
+
+
 class OnTheMarketListing(BaseModel):
     """A single OnTheMarket search-result card.
 
@@ -166,7 +179,6 @@ class OnTheMarketListingDetail(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     meta_description: Optional[str] = None
-    address: Optional[str] = None
     postcode: Optional[str] = None
     addressline_2: Optional[str] = None
     parent_locations: List[str] = Field(default_factory=list)
@@ -215,14 +227,15 @@ class OnTheMarketListingDetail(BaseModel):
             title=title,
             description=description,
             meta_description=meta_description,
-            address=ki.get("Address") or None,
-            postcode=data_layer.get("postcode") or None,
-            addressline_2=data_layer.get("addressline_2") or None,
-            parent_locations=list(data_layer.get("parent-locations") or []),
-            property_type=data_layer.get("property-type") or None,
-            channel=data_layer.get("channel") or None,
-            status=data_layer.get("status") or None,
-            trans_type_id=data_layer.get("trans-type-id") or None,
+            postcode=_coerce_str(data_layer.get("postcode")),
+            addressline_2=_coerce_str(data_layer.get("addressline_2")),
+            parent_locations=[
+                str(loc) for loc in (data_layer.get("parent-locations") or [])
+            ],
+            property_type=_coerce_str(data_layer.get("property-type")),
+            channel=_coerce_str(data_layer.get("channel")),
+            status=_coerce_str(data_layer.get("status")),
+            trans_type_id=_coerce_str(data_layer.get("trans-type-id")),
             branch_id=_parse_int(data_layer.get("branch-id")),
             images=images,
             key_information=key_information,

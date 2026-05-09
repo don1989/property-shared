@@ -68,6 +68,8 @@ async def listings(
         return ZooplaListingsResponse(count=len(results), results=results)
     except ImportError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=502, detail=f"Zoopla listings failed: {exc}"

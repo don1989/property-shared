@@ -15,7 +15,7 @@ for both postcodes and area names.
 from __future__ import annotations
 
 import re
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 _BASE = "https://www.onthemarket.com"
 
@@ -36,10 +36,14 @@ _SLUG_INVALID = re.compile(r"[^a-z0-9-]")
 
 
 def _to_slug(value: str) -> str:
-    """Lower-case, replace whitespace with hyphens, strip other characters."""
+    """Lower-case, replace whitespace with hyphens, strip other characters.
+
+    URL-encoded inputs (``"SW1A%201AA"``) are decoded first so the encoded
+    space doesn't survive into the slug as ``"sw1a201aa"``.
+    """
     if not value or not value.strip():
         raise ValueError("postcode/area must be a non-empty string")
-    s = value.strip().lower()
+    s = unquote(value).strip().lower()
     s = re.sub(r"\s+", "-", s)
     s = _SLUG_INVALID.sub("", s)
     s = re.sub(r"-+", "-", s).strip("-")

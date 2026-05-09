@@ -57,6 +57,62 @@ def test_url_builder_empty_postcode():
         OnTheMarketLocationAPI().build_search_url("")
 
 
+def test_url_builder_url_encoded_postcode_is_decoded():
+    """Reviewer fix: URL-encoded inputs must not survive into the slug."""
+    url = OnTheMarketLocationAPI().build_search_url("SW1A%201AA")
+    assert url == "https://www.onthemarket.com/for-sale/property/sw1a-1aa/"
+
+
+def test_starting_page_honours_existing_page_param():
+    """Reviewer fix: caller-supplied ?page= must be the starting page."""
+    from property_core.onthemarket_scraper import _next_page_url, _starting_page
+
+    url = "https://www.onthemarket.com/for-sale/property/sw1a-1aa/?page=3"
+    assert _starting_page(url) == 3
+    assert "page=4" in _next_page_url(url, _starting_page(url) + 1)
+    assert _starting_page("https://www.onthemarket.com/for-sale/property/sw1a-1aa/") == 1
+
+
+def test_detail_coerces_int_data_layer_values():
+    """Reviewer fix: OnTheMarketListingDetail must not crash when the
+    upstream dataLayer ships an int where we expected a str."""
+    from property_core.models.onthemarket import OnTheMarketListingDetail
+
+    detail = OnTheMarketListingDetail.build(
+        listing_id="42",
+        url="https://www.onthemarket.com/details/42/",
+        data_layer={
+            "price": 500_000,
+            "channel": 1,           # int instead of "sale"/"rent"
+            "status": 2,
+            "addressline_2": 7,
+            "postcode": 99,
+            "property-type": 0,
+            "trans-type-id": 5,
+            "branch-id": 8,
+            "parent-locations": ["uk", 1],
+        },
+        title=None,
+        description=None,
+        meta_description=None,
+        display_price=None,
+        images=[],
+        key_information={},
+    )
+    assert detail.channel == "1"
+    assert detail.postcode == "99"
+    assert detail.parent_locations == ["uk", "1"]
+
+
+def test_search_card_populates_raw_html():
+    """Reviewer fix: transport models must populate `raw` per house rules."""
+    html = (FIXTURES / "otm_search.html").read_text()
+    listings = _parse_search_html(html)
+    assert listings[0].raw is not None
+    assert "html" in listings[0].raw
+    assert "search-result-property-card" in listings[0].raw["html"]
+
+
 def test_parse_search_html_extracts_cards():
     html = (FIXTURES / "otm_search.html").read_text()
     listings = _parse_search_html(html)

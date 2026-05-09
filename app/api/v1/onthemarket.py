@@ -60,6 +60,8 @@ async def listings(
             partial(fetch_listings, search_url, max_pages=max_pages)
         )
         return OnTheMarketListingsResponse(count=len(results), results=results)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=502, detail=f"OnTheMarket listings failed: {exc}"
@@ -72,6 +74,8 @@ async def listing_detail(property_id: str) -> OnTheMarketListingDetailResponse:
     try:
         result = await anyio.to_thread.run_sync(partial(fetch_listing, property_id))
         return OnTheMarketListingDetailResponse(result=result)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=502, detail=f"OnTheMarket listing detail failed: {exc}"

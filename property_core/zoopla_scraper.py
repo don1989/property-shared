@@ -103,6 +103,9 @@ def fetch_listings(
 
     listings: List[ZooplaListing] = []
     page_counter = 0
+    # Honour an existing ?pn=N in the caller's URL: subsequent pages step
+    # forward from there rather than overwriting back to ?pn=2.
+    starting_page = _starting_page(search_url)
     next_url: str | None = search_url
     seen_pages: set[str] = set()
 
@@ -158,11 +161,25 @@ def fetch_listings(
                 if max_pages is not None and page_counter >= max_pages:
                     break
 
-                next_url = _next_page_url(search_url, page_counter + 1) if page_listings else None
+                next_url = (
+                    _next_page_url(search_url, starting_page + page_counter)
+                    if page_listings
+                    else None
+                )
         finally:
             browser.close()
 
     return listings
+
+
+def _starting_page(search_url: str) -> int:
+    """Return the ``pn=N`` value from ``search_url``, defaulting to ``1``."""
+    parsed = urlparse(search_url)
+    query_items = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    try:
+        return max(1, int(query_items.get("pn", "1")))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _next_page_url(search_url: str, next_page: int) -> str:
@@ -254,7 +271,7 @@ def _parse_card(anchor: Tag) -> Optional[ZooplaListing]:
         agent_name=agent_name,
         agent_logo=agent_logo,
         images=images,
-        raw=None,
+        raw={"html": str(outer if outer is not None else anchor)},
     )
 
 
