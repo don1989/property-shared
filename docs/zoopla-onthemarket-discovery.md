@@ -10,9 +10,16 @@ fields against verbatim observed data.
 
 ## TL;DR
 
-- **Zoopla:** **BLOCKED.** Every URL — including `/robots.txt` — returns `403`
-  with `cf-mitigated: challenge` from Cloudflare. Plain `requests` cannot
-  reach any content. **Decision required from user before proceeding.**
+- **Zoopla — partial coverage with Playwright.** Plain `requests` is
+  Cloudflare-blocked across the entire domain. Headless Playwright (per
+  user direction in Phase 1) gets through search pages but **not the
+  per-listing detail pages**, which serve a Cloudflare Turnstile "Just a
+  moment..." challenge that does not auto-resolve in headless Chromium
+  (~60s wait verified).
+  Search-card data is rich enough to ship a useful `fetch_listings()`;
+  `fetch_listing()` is **not feasible** under the agreed constraints
+  (no `playwright-stealth`, no paid bypass APIs). **Decision required:**
+  ship Zoopla as search-only, or escalate.
 - **OnTheMarket:** **OK to scrape with `requests` + BeautifulSoup.** Returns
   `200`, no Cloudflare interstitial, all listing data is in the rendered HTML
   via `<article data-component="search-result-property-card" itemscope
@@ -36,7 +43,9 @@ Headers:
 Probe scripts: `/tmp/probe_sites.py`, `/tmp/probe_otm_articles.py`,
 `/tmp/probe_otm_listing_full.py`, `/tmp/probe_zoopla_more.py` (not committed).
 
-## 2. Zoopla — BLOCKED
+## 2. Zoopla — partial coverage via Playwright
+
+### 2.1 Plain `requests` — fully blocked
 
 | URL | Status | Cloudflare |
 |---|---|---|
@@ -48,49 +57,115 @@ Probe scripts: `/tmp/probe_sites.py`, `/tmp/probe_otm_articles.py`,
 | `https://www.zoopla.co.uk/sitemap.xml` | 403 | `cf-mitigated: challenge` |
 | `https://www.zoopla.co.uk/robots.txt` | 403 | `cf-mitigated: challenge` |
 
-Every response is the standard Cloudflare interstitial HTML, not Zoopla's
-own content. Body length ~5.7KB. No `__NEXT_DATA__`, no `ld+json`.
+Cloudflare gates the whole domain against datacenter IPs / TLS fingerprints.
+Body length ~5.7KB; no `__NEXT_DATA__`, no `ld+json`.
 
-The challenge is uniform across paths — Cloudflare is gating the entire
-domain against this datacenter IP / TLS fingerprint, not just specific
-endpoints.
+### 2.2 Playwright (headless Chromium) — search OK, detail blocked
 
-### Decision points (need user input)
+After installing the `planning` extra (`uv sync --extra planning` plus
+`playwright install chromium`) and using a Chrome UA + en-GB locale + 1280×900
+viewport + `ignore_https_errors=True`:
 
-Per Phase 0 anti-patterns: I am NOT silently adding Playwright,
-`undetected-chromedriver`, `curl_cffi`, paid scraping APIs, or proxy services.
-The viable paths are:
+| URL | Status | Result |
+|---|---|---|
+| `/for-sale/property/sw1a-1aa/` | 200 | 460 KB HTML, 25 cards |
+| `/for-sale/property/london/` | 200 | 583 KB HTML, 28 cards |
+| `/for-sale/details/{id}/` (any fresh ID) | 403 | 31 KB CF Turnstile interstitial: `<title>Just a moment...</title>` |
 
-1. **Drop Zoopla.** Ship OnTheMarket only. Smallest scope, fastest to land.
-2. **Add a residential-proxy env var (e.g. `ZOOPLA_PROXY_URL`)** mirroring
-   the existing `PLAYWRIGHT_PROXY_URL` pattern. Still uses plain `requests`
-   on top, no new browser dep. Downside: requires user-supplied proxy
-   credentials at runtime.
-3. **Browser automation with Playwright.** Already a project dependency
-   (`playwright>=1.57.0` is used by `planning_scraper.py`), so no new dep
-   strictly speaking. Asynchronous, slower, heavier — but reliable. Same
-   pattern the planning scraper already uses.
-4. **`curl_cffi`** to mimic real Chrome TLS fingerprint. New small dep.
-   Sometimes defeats CF's basic bot-mode without a full browser. Not
-   guaranteed; CF can still serve a JS challenge that a static client
-   can't solve.
+The detail page does NOT auto-resolve. Verified by polling `page.title()` and
+content length every 5 seconds for 60 seconds; both stay frozen at the
+challenge state. Stealth tweaks tried (no improvement):
 
-I'd recommend (3) — Playwright is already in the dep tree for planning, so
-the marginal cost is low and the success rate is highest. But this is a
-user decision.
+- `args=["--disable-blink-features=AutomationControlled"]`
+- Init script overriding `navigator.webdriver`, `navigator.languages`,
+  `navigator.plugins`, `window.chrome`
+- Visiting search first to land cookies, then navigating to the detail URL
 
-### What we *did* learn about Zoopla URL conventions
+Cloudflare's Turnstile challenge requires either a solved JS-challenge
+fingerprint or a `cf_clearance` cookie acquired via interactive
+verification — neither is achievable in plain headless Chromium without
+adding `playwright-stealth`, `undetected-chromedriver`, or a paid bypass
+service (out of scope per the task spec).
 
-Even without being able to scrape, public knowledge from URL inspection:
+### 2.3 What we got from search pages
 
-- Search: `/for-sale/property/{postcode-slug}/` and `/to-rent/property/{postcode-slug}/`
-- Detail: `/for-sale/details/{listing_id}/` and `/to-rent/details/{listing_id}/`
-- Listing IDs are short numeric (e.g. `68876254`)
-- Slug uses lowercase + hyphens for postcodes (`sw1a-1aa`)
+- `__NEXT_DATA__` is **not present** on Zoopla — they're using App Router
+  with React Server Components (`self.__next_f.push()` chunks). The RSC
+  payload is parseable but extremely fragile. **Do not use it.**
+- One `<script type="application/ld+json">` block per page, structured as
+  `{"@context": "...", "@graph": [WebSite, BreadcrumbList, SearchResultsPage]}`.
+  Site-level metadata only — no per-listing fields. **Do not use it.**
+- Listing data lives in HTML, anchored by `data-testid="listing-card-content"`
+  on the `<a>` element. Sibling `<div class="lib_footerWrapper__...">`
+  contains the agent footer. Wrapping `<div class="layout_layoutGridSlim__...">`
+  contains the photo gallery (3 photos per card from `lid.zoocdn.com`).
+- 25-28 cards per search page; pagination via `?pn=2`, `?pn=3`, etc. (visible
+  in `[data-testid='pagination-arrows']`).
 
-This is enough to design `zoopla_location.py` (URL builder), but **none of
-it is verified against rendered HTML**. The Pydantic model fields cannot
-be designed without real fetched data.
+Class names are CSS-Modules with hash suffixes (`price_priceText__TArfK`,
+`amenities_amenityListSlim__HC4qV`). Hashes will rotate on a Zoopla
+redeploy. Selectors use **prefix matching** on the class names
+(`re.compile(r"^price_priceText")`) to absorb future hash rotation.
+
+### 2.4 Verbatim field inventory — Zoopla search card
+
+From card `71589060` (London search), all selectors verified against
+real HTML:
+
+| Field | Selector | Sample value |
+|---|---|---|
+| listing id | `<a data-testid="listing-card-content" href="/for-sale/details/{ID}/">` | `71589060` |
+| price | `<p class="price_priceText__...">` text | `"£695,000"` |
+| price qualifier | `<p class="price_priceTitle__...">` text | `"Guide price"` (also `"OIRO"`, `"Offers in excess of"`) |
+| amenities (raw) | `<span class="amenities_amenityItemSlim__...">` items inside `<p class="amenities_amenityListSlim__...">` | `["2 beds", "2 baths", "1 reception", "1218 sq ft"]` |
+| address | `<address class="summary_address__...">` text | `"Melliss Avenue, Richmond TW9"` |
+| summary | `<p class="summary_summary__...">` text | first ~150 chars of description |
+| premium attributes | `<ul class="premium-attributes_attributeList__...">` `<span class="premium-attributes_attributeText__...">` | `["Parking", "Swimming Pool"]` |
+| badges | `<ul class="badges_badgesListSlim__...">` `<div>` items | `["Leasehold", "Reduced"]` (also: `"Freehold"`, `"New"`, `"Featured"`, `"Premium"`) |
+| agent name | `<img class="agent-logo_agentLogoImageSlim__..." alt="...">` | `"Hamptons - Richmond Sales"` |
+| agent logo | same `<img src="...">` (from `st.zoocdn.com`) | `"https://st.zoocdn.com/zoopla_static_agent_logo_(707660).png"` |
+| photos | `<img src="https://lid.zoocdn.com/.../*.png">` inside the wrapping `<div class="layout_layoutGridSlim__...">` | up to 3 per card, all 354×255 |
+
+Notes:
+- Amenities are a flat list of strings; we will parse `bedrooms`, `bathrooms`,
+  `receptions`, `floor_area_sqft` from the strings using regex (`r"^(\d+)\s*beds?$"` etc.).
+  We will also keep the raw list verbatim in `amenities` so callers can see the
+  original.
+- The card anchor includes `<button>See monthly cost</button>` which has no
+  semantic data — ignored.
+- No bathrooms / bedrooms `itemprop`, unlike OnTheMarket. The amenity strings
+  are the only source.
+- "Leasehold/Freehold" is a badge string, not a tenure object.
+
+### 2.5 URL conventions (verified)
+
+- Search by full postcode: `/for-sale/property/{postcode-slug}/` — sale
+- Search by full postcode (rent): `/to-rent/property/{postcode-slug}/`
+- Search by area: `/for-sale/property/{area-slug}/` (e.g. `london`)
+- Detail: `/for-sale/details/{listing_id}/` — **but unreachable in
+  headless Chromium**
+- Postcode slug: lowercase + hyphen replaces space (`sw1a-1aa`)
+- Pagination: `?pn=N` query param (verified via `data-testid='pagination-arrows'`)
+
+### 2.6 Decision required
+
+Given detail pages are blocked, the realistic v1 scope for Zoopla is:
+
+1. **Ship search only.** `fetch_listings(search_url)` returns
+   `list[ZooplaListing]`. The `ZooplaListingDetail` model and
+   `fetch_listing()` are not implemented; MCP tool `zoopla_listing` is
+   not registered. README/CHANGELOG note the limitation.
+2. **Add a stealth dep** (`playwright-stealth` ~50KB pure Python) — small,
+   not yet in the project's deps. Likely defeats Turnstile. New supply-
+   chain risk; user has explicitly forbidden stealth deps in the task
+   anti-patterns ("Do not add ... undetected-chromedriver, or any
+   browser-automation dep without asking me first").
+3. **Drop Zoopla.** OnTheMarket only.
+
+I'm proceeding under the assumption of (1) unless the user picks otherwise.
+This delivers immediate value (postcode-level Zoopla market view) and the
+Phase 2 implementation can be re-entered later for `fetch_listing()` if
+the constraint changes.
 
 ## 3. OnTheMarket — OK to scrape
 
@@ -234,7 +309,46 @@ sale-vs-rent prefix, unlike Zoopla. Channel comes from `dataLayer.channel`.
 
 ## 4. Recommended scope for Phase 2
 
-If user approves dropping or escalating Zoopla, then for OnTheMarket:
+### Zoopla (search-only — pending user confirmation)
+
+```
+class ZooplaListing(BaseModel):
+    id: str                          # from /for-sale/details/{id}/
+    url: str                         # absolute URL (https://www.zoopla.co.uk + href)
+    price: int | None                # parsed from "£695,000"
+    display_price: str | None        # raw "£695,000"
+    price_qualifier: str | None      # "Guide price", "OIRO", etc.
+    address: str | None              # <address> text
+    summary: str | None              # <p class="summary_summary__"> text
+    bedrooms: int | None             # parsed from "2 beds" amenity
+    bathrooms: int | None            # parsed from "2 baths" amenity
+    receptions: int | None           # parsed from "1 reception" amenity
+    floor_area_sqft: int | None      # parsed from "1218 sq ft" amenity
+    amenities: list[str]             # raw verbatim list (always populated)
+    premium_attributes: list[str]    # ["Parking", "Swimming Pool"]
+    badges: list[str]                # ["Leasehold", "Reduced", ...]
+    agent_name: str | None           # img alt text on agent logo
+    agent_logo: str | None           # img src on agent logo
+    images: list[str]                # property photos (lid.zoocdn.com)
+    raw: dict | None = Field(default=None, exclude=True)
+```
+
+```python
+async def fetch_listings(
+    search_url: str, *,
+    timeout_ms: int = 45_000,
+    max_pages: int | None = None,
+    rate_limit_seconds: float = 0.6,   # via ZOOPLA_DELAY_SECONDS env var
+    proxy: str | None = None,           # passthrough to playwright
+) -> list[ZooplaListing]: ...
+```
+
+`ZooplaLocationAPI` mirrors OnTheMarket's: postcode → slug
+(`postcode.lower().replace(" ", "-")`), no typeahead. Lives in
+`zoopla_location.py` for parity. Sale/rent path prefix differs from OTM
+(`/for-sale/property/` vs `/to-rent/property/`).
+
+### OnTheMarket
 
 ### `OnTheMarketListing` (search-card model)
 
