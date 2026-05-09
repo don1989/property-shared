@@ -110,7 +110,7 @@ async def rightmove_search(url: str, max_pages: int = 3) -> list[dict]:
     listings = await anyio.to_thread.run_sync(
         lambda: fetch_listings(url, max_pages=max_pages)
     )
-    return [l.model_dump() for l in listings]
+    return [l.model_dump(exclude={"images"}) for l in listings]
 
 
 @mcp.tool()
@@ -127,12 +127,16 @@ async def property_blocks(
     months: int = 24,
 ) -> dict:
     """Block-buy analysis — identify buildings with multiple flat sales."""
+    import anyio
     from property_core import analyze_blocks
-    return (await analyze_blocks(
-        postcode=postcode,
-        search_level=search_level,
-        months=months,
-    )).model_dump()
+    result = await anyio.to_thread.run_sync(
+        lambda: analyze_blocks(
+            postcode=postcode,
+            search_level=search_level,
+            months=months,
+        )
+    )
+    return result.model_dump()
 
 
 @mcp.tool()
