@@ -105,8 +105,11 @@ def stamp_duty(
 @mcp.tool()
 async def rightmove_search(url: str, max_pages: int = 3) -> list[dict]:
     """Fetch Rightmove listings from a search URL."""
+    import anyio
     from property_core import fetch_listings
-    listings = await fetch_listings(url=url, max_pages=max_pages)
+    listings = await anyio.to_thread.run_sync(
+        lambda: fetch_listings(url, max_pages=max_pages)
+    )
     return [l.model_dump() for l in listings]
 
 
