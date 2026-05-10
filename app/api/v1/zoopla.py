@@ -1,8 +1,8 @@
-"""Zoopla API endpoints: search URL builder + listings.
+"""Zoopla API endpoints: search URL builder, listings, and listing detail.
 
-There is no listing-detail endpoint because Zoopla's per-listing detail
-pages serve a Cloudflare Turnstile challenge that does not auto-resolve
-in headless Chromium. See docs/zoopla-onthemarket-discovery.md.
+Both search and detail are reachable via curl_cffi (libcurl-impersonate
+replays a Chrome TLS fingerprint that defeats Cloudflare's bot mode).
+See docs/zoopla-onthemarket-discovery.md.
 """
 
 from __future__ import annotations
@@ -13,9 +13,13 @@ from typing import Literal, Optional
 import anyio
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas.zoopla import ZooplaListingsResponse, ZooplaSearchURLResponse
+from app.schemas.zoopla import (
+    ZooplaListingDetailResponse,
+    ZooplaListingsResponse,
+    ZooplaSearchURLResponse,
+)
 from property_core.zoopla_location import ZooplaLocationAPI
-from property_core.zoopla_scraper import fetch_listings
+from property_core.zoopla_scraper import fetch_listing, fetch_listings
 
 router = APIRouter(prefix="/zoopla", tags=["zoopla"])
 
@@ -57,9 +61,7 @@ async def listings(
 ) -> ZooplaListingsResponse:
     """Fetch listing results from a Zoopla search URL.
 
-    Uses headless Playwright. Requires the ``planning`` extra:
-    ``pip install 'property-shared[planning]'`` plus
-    ``playwright install chromium``.
+    Uses ``curl_cffi`` to defeat Cloudflare; no browser required.
     """
     try:
         results = await anyio.to_thread.run_sync(
@@ -73,4 +75,20 @@ async def listings(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=502, detail=f"Zoopla listings failed: {exc}"
+        ) from exc
+
+
+@router.get("/listing/{property_id}", response_model=ZooplaListingDetailResponse)
+async def listing_detail(property_id: str) -> ZooplaListingDetailResponse:
+    """Fetch full details for an individual Zoopla listing."""
+    try:
+        result = await anyio.to_thread.run_sync(partial(fetch_listing, property_id))
+        return ZooplaListingDetailResponse(result=result)
+    except ImportError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Zoopla listing detail failed: {exc}"
         ) from exc

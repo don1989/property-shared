@@ -34,7 +34,7 @@ from property_core.models.report import (
     YieldAnalysis,
 )
 from property_core.models.rightmove import RightmoveListingDetail, RightmoveListing
-from property_core.models.zoopla import ZooplaListing
+from property_core.models.zoopla import ZooplaListing, ZooplaListingDetail
 from property_core.models.onthemarket import OnTheMarketListing, OnTheMarketListingDetail
 
 __all__ = [
@@ -70,4 +70,5 @@ __all__ = [
     "SubjectProperty",
     "YieldAnalysis",
     "ZooplaListing",
+    "ZooplaListingDetail",
 ]

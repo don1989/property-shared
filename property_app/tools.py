@@ -419,9 +419,9 @@ def zoopla_search(
 ) -> dict:
     """Search Zoopla property listings by postcode.
 
-    Builds a search URL, fetches the first page via headless Playwright,
-    and returns listing summaries with a median price. Zoopla per-listing
-    detail pages are not currently scrapable (Cloudflare Turnstile).
+    Builds a search URL, fetches the first page via curl_cffi (TLS
+    fingerprint impersonation defeats Cloudflare), and returns listing
+    summaries with a median price.
     """
     return search_zoopla(
         postcode,
@@ -431,6 +431,35 @@ def zoopla_search(
         radius=radius,
         building_type=building_type,
     )
+
+
+def lookup_zoopla_listing(property_id: str) -> dict:
+    """Raw Zoopla listing detail — returns dict."""
+    from property_core import fetch_zoopla_listing
+
+    listing = fetch_zoopla_listing(property_id)
+    return _slim(listing.model_dump(mode="json"))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"zoopla", "listings"},
+    timeout=30.0,
+)
+def zoopla_listing(
+    property_id: Annotated[
+        str,
+        Field(description="Zoopla property id (numeric, e.g. '72192746') or full URL"),
+    ],
+) -> dict:
+    """Full property detail data for a Zoopla listing.
+
+    Returns price, address, postcode, bedrooms/bathrooms/floor area,
+    tenure, council tax band, agent name, listing status, EPC/floorplan
+    flags, furnished state, breadcrumbs, and the verbatim "Need to see
+    info" rows.
+    """
+    return lookup_zoopla_listing(property_id)
 
 
 # ---------------------------------------------------------------------------

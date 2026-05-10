@@ -1,56 +1,52 @@
-"""Zoopla scraper (search-only via headless Playwright).
+"""Zoopla scraper (search + listing detail) via curl_cffi.
 
-Zoopla is wholly Cloudflare-gated against datacenter ``requests`` clients.
-Phase 1 discovery (see docs/zoopla-onthemarket-discovery.md) verified that
-headless Playwright with a Chrome UA + en-GB locale + standard viewport
-gets through the search pages but **not** per-listing detail URLs (which
-serve a Cloudflare Turnstile interstitial). Therefore only ``fetch_listings``
-is implemented here; there is no ``fetch_listing`` for Zoopla.
+Plain ``requests`` is fully Cloudflare-blocked across zoopla.co.uk because
+CF fingerprints on TLS handshake characteristics, not just User-Agent.
+``curl_cffi`` (libcurl-impersonate) replays a real Chrome TLS/HTTP-2
+fingerprint and gets clean ``200`` responses on both search and detail
+pages. No browser automation needed.
 
-The function is synchronous, mirroring ``rightmove_scraper.fetch_listings``.
-Consumers in async contexts should wrap calls in
-``anyio.to_thread.run_sync(...)``.
+Search-card HTML structure: ``<a data-testid='listing-card-content'>``
+inside a ``<div class='layout_layoutGrid...'>`` wrapper that also holds
+the photo gallery and agent footer. CSS-Modules class names carry hash
+suffixes (e.g. ``price_priceText__TArfK``); selectors match by class-name
+*prefix* to absorb future hash rotation.
 
-Playwright is an optional dependency (``planning`` extra). Importing this
-module without ``playwright`` installed raises a clear ``ImportError`` at
-call-time, not at module-import time, so the rest of ``property_core``
-remains importable in lean environments.
+Listing-detail page exposes:
+- ``<script type='application/ld+json'>`` with a ``RealEstateListing``
+  block (name, description, datePosted, image, additionalProperty list
+  with Bedrooms/Bathrooms/Floor size, offers.price/priceCurrency).
+- A ``BreadcrumbList`` ld+json block for the location hierarchy.
+- A ``ListingAnalyticsTaxonomy`` JSON object embedded in one of the RSC
+  ``self.__next_f.push([...])`` chunks, with the canonical attribute
+  data (branch info, tenure, furnishedState, hasEpc, hasFloorplan, etc.).
+- A ``<ul class='NtsInfo_ntsInfoList...'>`` "Need to see info" block with
+  Tenure / Council tax band rows.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import time
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from bs4 import BeautifulSoup, Tag
 
-from property_core.models.zoopla import ZooplaListing
+from property_core.models.zoopla import ZooplaListing, ZooplaListingDetail
 
 
 class ZooplaError(Exception):
     """Raised when Zoopla data cannot be fetched or parsed."""
 
 
-_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-)
-
-_VIEWPORT = {"width": 1280, "height": 900}
-_LOCALE = "en-GB"
-
-_STEALTH_INIT = (
-    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-    "Object.defineProperty(navigator, 'languages', {get: () => ['en-GB','en']});"
-    "Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});"
-    "window.chrome = { runtime: {} };"
-)
-
 _BASE = "https://www.zoopla.co.uk"
+_DEFAULT_IMPERSONATE = "chrome120"
+
 _DETAIL_HREF_RE = re.compile(r"^/for-sale/details/(\d+)/?")
 _DETAIL_HREF_RENT_RE = re.compile(r"^/to-rent/details/(\d+)/?")
+
 _PRICE_TEXT_RE = re.compile(r"^price_priceText")
 _PRICE_TITLE_RE = re.compile(r"^price_priceTitle")
 _AMENITY_LIST_RE = re.compile(r"^amenities_amenityListSlim")
@@ -61,115 +57,161 @@ _PREMIUM_LIST_RE = re.compile(r"^premium-attributes_attributeList")
 _PREMIUM_TEXT_RE = re.compile(r"^premium-attributes_attributeText")
 _BADGE_LIST_RE = re.compile(r"^badges_badgesListSlim")
 _AGENT_LOGO_RE = re.compile(r"^agent-logo_agentLogoImage")
-_PROPERTY_PHOTO_HOST = "lid.zoocdn.com"
 _LAYOUT_GRID_RE = re.compile(r"^layout_layoutGrid")
+_NTS_INFO_ITEM_RE = re.compile(r"^NtsInfo_ntsInfoListItem")
+_NTS_INFO_TITLE_RE = re.compile(r"^NtsInfo_ntsInfoItemTitle")
+_NTS_INFO_TEXT_WRAP_RE = re.compile(r"^NtsInfo_ntsInfoItemTextWrapper")
+
+_PROPERTY_PHOTO_HOST = "lid.zoocdn.com"
+
+_ANALYTICS_TAXONOMY_MARKER = '"__typename":"ListingAnalyticsTaxonomy"'
+
+_RSC_CHUNK_RE = re.compile(r'self\.__next_f\.push\(\[\d+,\s*"((?:[^"\\]|\\.)*)"\]\)')
+
+
+# ---------------------------------------------------------------------------
+# Public entry points
+# ---------------------------------------------------------------------------
 
 
 def fetch_listings(
     search_url: str,
     *,
-    timeout_ms: int = 45_000,
+    timeout: float = 25.0,
     max_pages: Optional[int] = None,
-    rate_limit_seconds: float = 1.0,
+    rate_limit_seconds: float = 0.6,
+    impersonate: str = _DEFAULT_IMPERSONATE,
     proxy: str | None = None,
-    headless: bool = True,
 ) -> List[ZooplaListing]:
     """Fetch Zoopla search results across one or more pages.
 
     Args:
-        search_url: Absolute Zoopla search URL (build with ``ZooplaLocationAPI``).
-        timeout_ms: Per-page navigation timeout in milliseconds.
-        max_pages: Cap on pages walked. ``None`` = walk until no next page.
+        search_url: Absolute Zoopla search URL (build with
+            ``ZooplaLocationAPI``).
+        timeout: HTTP request timeout in seconds.
+        max_pages: Cap on pages walked. ``None`` walks until no more cards.
         rate_limit_seconds: Polite delay between page fetches.
-        proxy: Optional proxy URL (e.g. residential proxy) passed to Playwright.
-        headless: Run Chromium headless (default ``True``).
+        impersonate: ``curl_cffi`` browser-fingerprint profile (e.g.
+            ``"chrome120"``, ``"safari17_2_ios"``, ``"firefox133"``).
+        proxy: Optional proxy URL (e.g. residential proxy).
 
     Returns:
         List of ``ZooplaListing`` from all pages walked.
 
     Raises:
-        ImportError: If ``playwright`` is not installed (install
-            ``property-shared[planning]``).
+        ImportError: If ``curl_cffi`` is not installed.
         ZooplaError: If a page is blocked (Cloudflare interstitial) or
-            structure parsing fails.
+            HTML structure parsing fails.
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:  # pragma: no cover - environment-dependent
-        raise ImportError(
-            "Zoopla scraping requires Playwright. Install with: "
-            "pip install 'property-shared[planning]' && playwright install chromium"
-        ) from exc
+    session = _new_session(impersonate=impersonate, proxy=proxy)
 
     listings: List[ZooplaListing] = []
     page_counter = 0
-    # Honour an existing ?pn=N in the caller's URL: subsequent pages step
-    # forward from there rather than overwriting back to ?pn=2.
     starting_page = _starting_page(search_url)
     next_url: str | None = search_url
     seen_pages: set[str] = set()
 
-    launch_kwargs: dict = {
-        "headless": headless,
-        "args": ["--disable-blink-features=AutomationControlled"],
-    }
-    if proxy:
-        launch_kwargs["proxy"] = {"server": proxy}
+    while next_url:
+        if next_url in seen_pages:
+            break
+        seen_pages.add(next_url)
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(**launch_kwargs)
-        try:
-            ctx = browser.new_context(
-                user_agent=_USER_AGENT,
-                locale=_LOCALE,
-                viewport=_VIEWPORT,
-                ignore_https_errors=True,
+        if rate_limit_seconds and page_counter > 0:
+            time.sleep(rate_limit_seconds)
+        page_counter += 1
+
+        html = _get(session, next_url, timeout=timeout)
+        page_listings = _parse_search_html(html)
+        if not page_listings and page_counter == 1:
+            raise ZooplaError(
+                f"No listings parsed from {next_url}. The page returned "
+                f"{len(html)} bytes but no listing-card-content anchors were "
+                "found — Zoopla may have changed its markup."
             )
-            ctx.add_init_script(_STEALTH_INIT)
-            page = ctx.new_page()
+        listings.extend(page_listings)
 
-            while next_url:
-                if next_url in seen_pages:
-                    break
-                seen_pages.add(next_url)
+        if max_pages is not None and page_counter >= max_pages:
+            break
 
-                if rate_limit_seconds and page_counter > 0:
-                    time.sleep(rate_limit_seconds)
-                page_counter += 1
-
-                response = page.goto(next_url, wait_until="domcontentloaded", timeout=timeout_ms)
-                # Allow the cards to hydrate
-                page.wait_for_timeout(1_500)
-                html = page.content()
-
-                if "Just a moment" in (page.title() or "") or (response and response.status == 403):
-                    raise ZooplaError(
-                        f"Zoopla returned a Cloudflare challenge for {next_url} "
-                        f"(status {response.status if response else '?'}). "
-                        "Try a residential proxy via the proxy= argument."
-                    )
-
-                page_listings = _parse_search_html(html)
-                if not page_listings and page_counter == 1:
-                    raise ZooplaError(
-                        f"No listings parsed from {next_url}. The page returned "
-                        f"{len(html)} bytes but no listing-card-content anchors were "
-                        "found — Zoopla may have changed its markup."
-                    )
-                listings.extend(page_listings)
-
-                if max_pages is not None and page_counter >= max_pages:
-                    break
-
-                next_url = (
-                    _next_page_url(search_url, starting_page + page_counter)
-                    if page_listings
-                    else None
-                )
-        finally:
-            browser.close()
+        next_url = (
+            _next_page_url(search_url, starting_page + page_counter)
+            if page_listings
+            else None
+        )
 
     return listings
+
+
+def fetch_listing(
+    property_url_or_id: str,
+    *,
+    timeout: float = 25.0,
+    impersonate: str = _DEFAULT_IMPERSONATE,
+    proxy: str | None = None,
+) -> ZooplaListingDetail:
+    """Fetch full property details from an individual Zoopla listing page.
+
+    Args:
+        property_url_or_id: Full Zoopla URL or numeric listing id.
+        timeout: HTTP request timeout in seconds.
+        impersonate: ``curl_cffi`` browser-fingerprint profile.
+        proxy: Optional proxy URL.
+
+    Returns:
+        ``ZooplaListingDetail`` populated from the ld+json
+        ``RealEstateListing``, ``BreadcrumbList``, embedded analytics
+        taxonomy, and the ``NtsInfo_ntsInfoList`` rows.
+    """
+    url = _normalize_listing_url(property_url_or_id)
+    listing_id = _id_from_url(url)
+    if listing_id is None:
+        raise ZooplaError(
+            f"Could not extract Zoopla listing id from {property_url_or_id!r}"
+        )
+
+    session = _new_session(impersonate=impersonate, proxy=proxy)
+    html = _get(session, url, timeout=timeout)
+    return _parse_listing_html(html, listing_id=listing_id, url=url)
+
+
+# ---------------------------------------------------------------------------
+# Transport plumbing
+# ---------------------------------------------------------------------------
+
+
+def _new_session(*, impersonate: str, proxy: str | None) -> Any:
+    """Construct a curl_cffi Session that impersonates a real browser."""
+    try:
+        from curl_cffi import requests as cf_requests
+    except ImportError as exc:  # pragma: no cover - environment-dependent
+        raise ImportError(
+            "Zoopla scraping requires curl_cffi. Install with: "
+            "pip install curl_cffi"
+        ) from exc
+
+    session_kwargs: dict[str, Any] = {"impersonate": impersonate}
+    if proxy:
+        session_kwargs["proxies"] = {"http": proxy, "https": proxy}
+    return cf_requests.Session(**session_kwargs)
+
+
+def _get(session: Any, url: str, *, timeout: float) -> str:
+    try:
+        response = session.get(url, timeout=timeout)
+    except Exception as exc:  # noqa: BLE001
+        raise ZooplaError(f"Request to {url} failed: {exc}") from exc
+
+    status = getattr(response, "status_code", 0)
+    text = getattr(response, "text", "")
+    if status == 403 or "Just a moment" in text[:5000]:
+        raise ZooplaError(
+            f"Zoopla returned a Cloudflare challenge for {url} (status {status}). "
+            "Try a different impersonate= profile (e.g. 'safari17_2_ios') "
+            "or a residential proxy via the proxy= argument."
+        )
+    if status >= 400:
+        raise ZooplaError(f"Request to {url} returned status {status}")
+    return text
 
 
 def _starting_page(search_url: str) -> int:
@@ -191,6 +233,24 @@ def _next_page_url(search_url: str, next_page: int) -> str:
     return urlunparse(parsed._replace(query=new_query))
 
 
+def _normalize_listing_url(url_or_id: str) -> str:
+    s = url_or_id.strip()
+    if s.startswith("http"):
+        return s
+    return f"{_BASE}/for-sale/details/{s}/"
+
+
+def _id_from_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    m = _DETAIL_HREF_RE.match(parsed.path) or _DETAIL_HREF_RENT_RE.match(parsed.path)
+    return m.group(1) if m else None
+
+
+# ---------------------------------------------------------------------------
+# Search-page parsing
+# ---------------------------------------------------------------------------
+
+
 def _parse_search_html(html: str) -> List[ZooplaListing]:
     soup = BeautifulSoup(html, "html.parser")
     anchors = soup.find_all("a", attrs={"data-testid": "listing-card-content"})
@@ -210,7 +270,6 @@ def _parse_card(anchor: Tag) -> Optional[ZooplaListing]:
     listing_id = m.group(1)
     url = f"{_BASE}{href}"
 
-    # Walk up to the outer card wrapper that includes photo gallery + agent footer.
     outer = _find_outer_card(anchor)
 
     display_price = _text_or_none(anchor.find("p", class_=_PRICE_TEXT_RE))
@@ -294,3 +353,149 @@ def _text_or_none(tag: Tag | None) -> str | None:
         return None
     txt = tag.get_text(strip=True)
     return txt or None
+
+
+# ---------------------------------------------------------------------------
+# Detail-page parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_listing_html(
+    html: str, *, listing_id: str, url: str
+) -> ZooplaListingDetail:
+    soup = BeautifulSoup(html, "html.parser")
+
+    real_estate, breadcrumb = _extract_ldjson_blocks(soup)
+    analytics = _extract_analytics_taxonomy(html)
+    nts_info = _extract_nts_info(soup)
+
+    title_text = _text_or_none(soup.title)
+    meta_description: str | None = None
+    md = soup.find("meta", attrs={"name": "description"})
+    if md is not None:
+        meta_description = (md.get("content") or "").strip() or None
+
+    # Gallery: every lid.zoocdn.com URL (deduped, original order). Zoopla
+    # ships variants like ``foo.jpg``, ``foo.jpg:p``, ``foo.jpg\`` (escape
+    # leakage from the JSON-string source); strip the suffix so dedup
+    # collapses them to one canonical URL.
+    images: list[str] = []
+    seen: set[str] = set()
+    for src in re.findall(r'https://lid\.zoocdn\.com/[^"\'\s\\]+', html):
+        clean = src.rstrip("\\")
+        if clean.endswith(":p"):
+            clean = clean[:-2]
+        if clean not in seen:
+            seen.add(clean)
+            images.append(clean)
+
+    return ZooplaListingDetail.build(
+        listing_id=listing_id,
+        url=url,
+        title_text=title_text,
+        meta_description=meta_description,
+        real_estate=real_estate,
+        breadcrumb=breadcrumb,
+        analytics=analytics,
+        nts_info=nts_info,
+        images=images,
+    )
+
+
+def _extract_ldjson_blocks(soup: BeautifulSoup) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Return ``(RealEstateListing, BreadcrumbList)`` JSON dicts.
+
+    Either may be empty if the block is missing.
+    """
+    real_estate: Dict[str, Any] = {}
+    breadcrumb: Dict[str, Any] = {}
+    for s in soup.find_all("script", type="application/ld+json"):
+        if not s.string:
+            continue
+        try:
+            obj = json.loads(s.string)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        t = obj.get("@type")
+        if t == "RealEstateListing":
+            real_estate = obj
+        elif t == "BreadcrumbList":
+            breadcrumb = obj
+    return real_estate, breadcrumb
+
+
+def _extract_analytics_taxonomy(html: str) -> Dict[str, Any]:
+    """Find the ``ListingAnalyticsTaxonomy`` object in the RSC chunks.
+
+    Returns ``{}`` if absent or unparseable. Walks each
+    ``self.__next_f.push([...])`` chunk, decodes the JS string, then
+    locates the enclosing ``{...}`` around the marker and parses it.
+    """
+    for raw_chunk in _RSC_CHUNK_RE.findall(html):
+        if "ListingAnalyticsTaxonomy" not in raw_chunk:
+            continue
+        try:
+            decoded = raw_chunk.encode().decode("unicode_escape")
+        except UnicodeDecodeError:
+            continue
+        marker_idx = decoded.find(_ANALYTICS_TAXONOMY_MARKER)
+        if marker_idx < 0:
+            continue
+        # Walk backwards to the opening brace of the enclosing object.
+        depth = 0
+        start = marker_idx
+        for j in range(marker_idx, -1, -1):
+            ch = decoded[j]
+            if ch == "}":
+                depth += 1
+            elif ch == "{":
+                if depth == 0:
+                    start = j
+                    break
+                depth -= 1
+        else:
+            continue
+        # Walk forwards to the matching close brace.
+        depth = 0
+        end = start
+        for j in range(start, len(decoded)):
+            ch = decoded[j]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = j + 1
+                    break
+        try:
+            obj = json.loads(decoded[start:end])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return {}
+
+
+def _extract_nts_info(soup: BeautifulSoup) -> Dict[str, str]:
+    """Return a flat ``{label: value}`` dict from the
+    ``<ul class='NtsInfo_ntsInfoList...'>`` block.
+
+    Each ``<li>`` row has a title ``<p>`` and a value wrapper ``<div>``;
+    we drop any nested ``<button>``/``<dialog>`` content so the value is
+    just the displayed text.
+    """
+    out: Dict[str, str] = {}
+    for li in soup.find_all("li", class_=_NTS_INFO_ITEM_RE):
+        title_el = li.find("p", class_=_NTS_INFO_TITLE_RE)
+        wrap = li.find("div", class_=_NTS_INFO_TEXT_WRAP_RE)
+        if title_el is None or wrap is None:
+            continue
+        label = title_el.get_text(strip=True).rstrip(":").strip()
+        # Take the first text-bearing <p> inside the value wrapper.
+        value_el = wrap.find("p")
+        value = value_el.get_text(" ", strip=True) if value_el else None
+        if label and value:
+            out[label] = value
+    return out

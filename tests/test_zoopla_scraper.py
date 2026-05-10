@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from property_core.zoopla_location import ZooplaLocationAPI
-from property_core.zoopla_scraper import _parse_search_html
+from property_core.zoopla_scraper import _parse_listing_html, _parse_search_html
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -117,6 +117,46 @@ def test_parse_search_html_amenity_parsing():
     assert any("bed" in a.lower() for a in sample.amenities)
 
 
+def test_parse_listing_html_full():
+    """Reviewer-grade smoke test on the captured listing-detail fixture."""
+    html = (FIXTURES / "zoopla_listing.html").read_text()
+    detail = _parse_listing_html(
+        html,
+        listing_id="72192746",
+        url="https://www.zoopla.co.uk/for-sale/details/72192746/",
+    )
+    assert detail.id == "72192746"
+    assert detail.price == 2_389_000
+    assert detail.currency == "GBP"
+    assert detail.display_price == "£2,389,000"
+    assert detail.title and "1 bed flat" in detail.title.lower()
+    assert detail.bedrooms == 1
+    assert detail.bathrooms == 1
+    assert detail.floor_area == "7,668 sq. ft"
+    assert detail.floor_area_sqft == 7668
+    assert detail.address == "31, Knightsbridge, London SW1A"
+    assert detail.postcode == "SW1A 1AA"
+    assert detail.outcode == "SW1A"
+    assert detail.property_type == "flat"
+    assert detail.listing_status == "for_sale"
+    assert detail.listing_condition == "pre-owned"
+    assert detail.furnished_state == "furnished"
+    assert detail.chain_free is False
+    assert detail.has_epc is False
+    assert detail.has_floorplan is False
+    assert detail.is_retirement_home is False
+    assert detail.is_shared_ownership is False
+    assert detail.tenure == "Freehold"
+    assert detail.council_tax_band == "G"
+    assert detail.agent_name == "UK Sotheby's International Realty"
+    assert detail.branch_id == 30027
+    assert detail.breadcrumbs[:3] == ["Zoopla", "For sale", "London"]
+    assert detail.date_posted == "2026-04-08T08:10:50"
+    assert detail.images and detail.images[0].startswith("https://lid.zoocdn.com/")
+    assert detail.nts_info["Tenure"] == "Freehold"
+    assert detail.nts_info["Council tax band"] == "G"
+
+
 @pytest.mark.anyio
 async def test_zoopla_search_live() -> None:
     if os.getenv("RUN_LIVE_TESTS") != "1":
@@ -134,10 +174,8 @@ async def test_zoopla_search_live() -> None:
             partial(fetch_listings, url, max_pages=1)
         )
     except ImportError:
-        pytest.skip("Playwright not installed (install property-shared[planning])")
+        pytest.skip("curl_cffi not installed")
     except ZooplaError as exc:
-        # Cloudflare may gate this IP/UA combination — treat as
-        # environment-level skip, not a code failure.
         pytest.skip(f"Zoopla blocked (likely Cloudflare): {exc}")
 
     assert isinstance(listings, list)
@@ -145,3 +183,42 @@ async def test_zoopla_search_live() -> None:
     if listings:
         sample = listings[0]
         print(f"  sample: id={sample.id} price={sample.price} addr={sample.address!r}")
+
+
+@pytest.mark.anyio
+async def test_zoopla_listing_detail_live() -> None:
+    if os.getenv("RUN_LIVE_TESTS") != "1":
+        pytest.skip("Set RUN_LIVE_TESTS=1 to run live network tests")
+
+    import anyio
+    from functools import partial
+    from property_core.zoopla_scraper import ZooplaError, fetch_listing, fetch_listings
+
+    postcode = os.getenv("ZOOPLA_TEST_POSTCODE", "SW1A 1AA")
+    url = ZooplaLocationAPI().build_search_url(postcode)
+
+    try:
+        listings = await anyio.to_thread.run_sync(
+            partial(fetch_listings, url, max_pages=1)
+        )
+    except ImportError:
+        pytest.skip("curl_cffi not installed")
+    except ZooplaError as exc:
+        pytest.skip(f"Zoopla blocked (likely Cloudflare): {exc}")
+
+    if not listings:
+        pytest.skip("no listings to drill into")
+    sample_id = listings[0].id
+
+    try:
+        detail = await anyio.to_thread.run_sync(partial(fetch_listing, sample_id))
+    except ZooplaError as exc:
+        pytest.skip(f"Zoopla detail blocked: {exc}")
+
+    assert detail.id == sample_id
+    assert detail.price is not None
+    assert detail.url.endswith(f"/details/{sample_id}/")
+    print(
+        f"Zoopla detail: id={detail.id} price={detail.price} "
+        f"tenure={detail.tenure!r} bd={detail.bedrooms} agent={detail.agent_name!r}"
+    )

@@ -10,7 +10,7 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from property_core.models.zoopla import ZooplaListing  # noqa: F401
+from property_core.models.zoopla import ZooplaListing, ZooplaListingDetail  # noqa: F401
 
 
 class ZooplaSearchURLResponse(BaseModel):
@@ -24,3 +24,9 @@ class ZooplaListingsResponse(BaseModel):
 
     count: int
     results: List[ZooplaListing] = Field(default_factory=list)
+
+
+class ZooplaListingDetailResponse(BaseModel):
+    """Response for an individual Zoopla listing detail."""
+
+    result: ZooplaListingDetail
