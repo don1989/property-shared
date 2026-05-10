@@ -117,6 +117,84 @@ def test_parse_search_html_amenity_parsing():
     assert any("bed" in a.lower() for a in sample.amenities)
 
 
+def test_profiles_to_try_orders_initial_first():
+    from property_core.zoopla_scraper import _profiles_to_try
+    out = _profiles_to_try("safari17_2_ios", ("chrome120", "safari17_2_ios", "firefox133"))
+    assert out[0] == "safari17_2_ios"
+    assert "chrome120" in out
+    assert "firefox133" in out
+    # No duplicate of initial profile
+    assert out.count("safari17_2_ios") == 1
+
+
+def test_profiles_to_try_disabled_with_empty_fallbacks():
+    from property_core.zoopla_scraper import _profiles_to_try
+    assert _profiles_to_try("chrome120", ()) == ["chrome120"]
+
+
+def test_fetch_with_profile_rotation_falls_through_to_working_profile(monkeypatch):
+    """When the first profile is Cloudflare-blocked, rotation must try the
+    next profile and return its (session, html) on success."""
+    from property_core import zoopla_scraper as zs
+
+    attempts: list[str] = []
+
+    class _FakeSession:
+        def __init__(self, profile: str):
+            self.profile = profile
+
+    def fake_new_session(*, impersonate: str, proxy):
+        return _FakeSession(impersonate)
+
+    def fake_get(session, url, *, timeout):
+        attempts.append(session.profile)
+        if session.profile == "chrome120":
+            raise zs.ZooplaError(f"Cloudflare blocked profile {session.profile}")
+        return f"<html>OK from {session.profile}</html>"
+
+    monkeypatch.setattr(zs, "_new_session", fake_new_session)
+    monkeypatch.setattr(zs, "_get", fake_get)
+
+    session, html = zs._fetch_with_profile_rotation(
+        url="https://www.zoopla.co.uk/for-sale/details/1/",
+        impersonate="chrome120",
+        fallback_profiles=("chrome120", "safari17_2_ios", "firefox133"),
+        proxy=None,
+        timeout=10.0,
+    )
+    assert attempts == ["chrome120", "safari17_2_ios"]
+    assert session.profile == "safari17_2_ios"
+    assert "OK from safari17_2_ios" in html
+
+
+def test_fetch_with_profile_rotation_raises_when_all_blocked(monkeypatch):
+    from property_core import zoopla_scraper as zs
+
+    class _FakeSession:
+        def __init__(self, profile: str):
+            self.profile = profile
+
+    monkeypatch.setattr(zs, "_new_session", lambda *, impersonate, proxy: _FakeSession(impersonate))
+    monkeypatch.setattr(
+        zs, "_get",
+        lambda session, url, *, timeout: (_ for _ in ()).throw(
+            zs.ZooplaError(f"blocked {session.profile}")
+        ),
+    )
+
+    with pytest.raises(zs.ZooplaError) as exc_info:
+        zs._fetch_with_profile_rotation(
+            url="https://www.zoopla.co.uk/for-sale/details/1/",
+            impersonate="chrome120",
+            fallback_profiles=("chrome120", "safari17_2_ios"),
+            proxy=None,
+            timeout=10.0,
+        )
+    msg = str(exc_info.value)
+    assert "All 2 curl_cffi profiles were blocked" in msg
+    assert "chrome120" in msg and "safari17_2_ios" in msg
+
+
 def test_parse_listing_html_full():
     """Reviewer-grade smoke test on the captured listing-detail fixture."""
     html = (FIXTURES / "zoopla_listing.html").read_text()
