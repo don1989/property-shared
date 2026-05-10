@@ -44,6 +44,18 @@ class ZooplaError(Exception):
 _BASE = "https://www.zoopla.co.uk"
 _DEFAULT_IMPERSONATE = "chrome120"
 
+# Profiles tried in order when the default (or caller-supplied) profile gets
+# blocked by Cloudflare. Chosen to span both major TLS-fingerprint families
+# (Chromium-based and Safari/Firefox); if all four fail from the same egress
+# IP, that IP is genuinely on Cloudflare's heavy-mitigation list and a
+# residential proxy is the next step.
+_FALLBACK_PROFILES: tuple[str, ...] = (
+    "chrome120",
+    "safari17_2_ios",
+    "firefox133",
+    "chrome116",
+)
+
 _DETAIL_HREF_RE = re.compile(r"^/for-sale/details/(\d+)/?")
 _DETAIL_HREF_RENT_RE = re.compile(r"^/to-rent/details/(\d+)/?")
 
@@ -81,6 +93,7 @@ def fetch_listings(
     max_pages: Optional[int] = None,
     rate_limit_seconds: float = 0.6,
     impersonate: str = _DEFAULT_IMPERSONATE,
+    fallback_profiles: tuple[str, ...] = _FALLBACK_PROFILES,
     proxy: str | None = None,
 ) -> List[ZooplaListing]:
     """Fetch Zoopla search results across one or more pages.
@@ -91,8 +104,10 @@ def fetch_listings(
         timeout: HTTP request timeout in seconds.
         max_pages: Cap on pages walked. ``None`` walks until no more cards.
         rate_limit_seconds: Polite delay between page fetches.
-        impersonate: ``curl_cffi`` browser-fingerprint profile (e.g.
-            ``"chrome120"``, ``"safari17_2_ios"``, ``"firefox133"``).
+        impersonate: ``curl_cffi`` browser-fingerprint profile to try first
+            (e.g. ``"chrome120"``, ``"safari17_2_ios"``, ``"firefox133"``).
+        fallback_profiles: Profiles tried in order if the first one is
+            Cloudflare-blocked. Pass ``()`` to disable rotation.
         proxy: Optional proxy URL (e.g. residential proxy).
 
     Returns:
@@ -100,39 +115,51 @@ def fetch_listings(
 
     Raises:
         ImportError: If ``curl_cffi`` is not installed.
-        ZooplaError: If a page is blocked (Cloudflare interstitial) or
-            HTML structure parsing fails.
+        ZooplaError: If every profile is blocked (Cloudflare interstitial)
+            or HTML structure parsing fails.
     """
-    session = _new_session(impersonate=impersonate, proxy=proxy)
+    starting_page = _starting_page(search_url)
+
+    # Try profiles until the first page comes back clean, then stick with
+    # that session for any subsequent pagination.
+    session, first_html = _fetch_with_profile_rotation(
+        url=search_url,
+        impersonate=impersonate,
+        fallback_profiles=fallback_profiles,
+        proxy=proxy,
+        timeout=timeout,
+    )
 
     listings: List[ZooplaListing] = []
-    page_counter = 0
-    starting_page = _starting_page(search_url)
-    next_url: str | None = search_url
-    seen_pages: set[str] = set()
+    page_listings = _parse_search_html(first_html)
+    if not page_listings:
+        raise ZooplaError(
+            f"No listings parsed from {search_url}. The page returned "
+            f"{len(first_html)} bytes but no listing-card-content anchors "
+            "were found — Zoopla may have changed its markup."
+        )
+    listings.extend(page_listings)
 
-    while next_url:
-        if next_url in seen_pages:
-            break
+    page_counter = 1
+    seen_pages: set[str] = {search_url}
+    next_url: str | None = (
+        _next_page_url(search_url, starting_page + page_counter)
+        if (max_pages is None or page_counter < max_pages)
+        else None
+    )
+
+    while next_url and next_url not in seen_pages:
         seen_pages.add(next_url)
-
-        if rate_limit_seconds and page_counter > 0:
+        if rate_limit_seconds:
             time.sleep(rate_limit_seconds)
         page_counter += 1
 
         html = _get(session, next_url, timeout=timeout)
         page_listings = _parse_search_html(html)
-        if not page_listings and page_counter == 1:
-            raise ZooplaError(
-                f"No listings parsed from {next_url}. The page returned "
-                f"{len(html)} bytes but no listing-card-content anchors were "
-                "found — Zoopla may have changed its markup."
-            )
         listings.extend(page_listings)
 
         if max_pages is not None and page_counter >= max_pages:
             break
-
         next_url = (
             _next_page_url(search_url, starting_page + page_counter)
             if page_listings
@@ -147,6 +174,7 @@ def fetch_listing(
     *,
     timeout: float = 25.0,
     impersonate: str = _DEFAULT_IMPERSONATE,
+    fallback_profiles: tuple[str, ...] = _FALLBACK_PROFILES,
     proxy: str | None = None,
 ) -> ZooplaListingDetail:
     """Fetch full property details from an individual Zoopla listing page.
@@ -154,7 +182,9 @@ def fetch_listing(
     Args:
         property_url_or_id: Full Zoopla URL or numeric listing id.
         timeout: HTTP request timeout in seconds.
-        impersonate: ``curl_cffi`` browser-fingerprint profile.
+        impersonate: ``curl_cffi`` browser-fingerprint profile to try first.
+        fallback_profiles: Profiles tried in order if the first one is
+            Cloudflare-blocked. Pass ``()`` to disable rotation.
         proxy: Optional proxy URL.
 
     Returns:
@@ -169,9 +199,57 @@ def fetch_listing(
             f"Could not extract Zoopla listing id from {property_url_or_id!r}"
         )
 
-    session = _new_session(impersonate=impersonate, proxy=proxy)
-    html = _get(session, url, timeout=timeout)
+    _, html = _fetch_with_profile_rotation(
+        url=url,
+        impersonate=impersonate,
+        fallback_profiles=fallback_profiles,
+        proxy=proxy,
+        timeout=timeout,
+    )
     return _parse_listing_html(html, listing_id=listing_id, url=url)
+
+
+def _profiles_to_try(initial: str, fallbacks: tuple[str, ...]) -> list[str]:
+    """Return ``[initial, ...fallbacks not equal to initial]``.
+
+    Caller's chosen profile is always tried first; the rest follow in
+    declaration order. Pass ``fallbacks=()`` to disable rotation.
+    """
+    out = [initial]
+    for p in fallbacks:
+        if p not in out:
+            out.append(p)
+    return out
+
+
+def _fetch_with_profile_rotation(
+    *,
+    url: str,
+    impersonate: str,
+    fallback_profiles: tuple[str, ...],
+    proxy: str | None,
+    timeout: float,
+) -> tuple[Any, str]:
+    """Try ``url`` against each profile in turn; return the first
+    ``(session, html)`` tuple that succeeds.
+
+    Raises ``ZooplaError`` listing every profile that failed only if all
+    of them did.
+    """
+    profiles = _profiles_to_try(impersonate, fallback_profiles)
+    failures: list[str] = []
+    for profile in profiles:
+        session = _new_session(impersonate=profile, proxy=proxy)
+        try:
+            html = _get(session, url, timeout=timeout)
+            return session, html
+        except ZooplaError as exc:
+            failures.append(f"{profile}: {exc}")
+            continue
+    raise ZooplaError(
+        f"All {len(profiles)} curl_cffi profiles were blocked for {url}. "
+        f"Failures: {'; '.join(failures)}. Consider a residential proxy."
+    )
 
 
 # ---------------------------------------------------------------------------
