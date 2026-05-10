@@ -193,6 +193,7 @@ async def zoopla_search(
     to defeat Cloudflare; no browser required.
     """
     import anyio
+    import os
     from property_core import ZooplaLocationAPI, fetch_zoopla_listings
     loc_api = ZooplaLocationAPI()
     search_url = loc_api.build_search_url(
@@ -203,8 +204,9 @@ async def zoopla_search(
         max_price=max_price,
         radius=radius,
     )
+    proxy = (os.environ.get("ZOOPLA_PROXY_URL") or "").strip() or None
     listings = await anyio.to_thread.run_sync(
-        lambda: fetch_zoopla_listings(search_url, max_pages=max_pages)
+        lambda: fetch_zoopla_listings(search_url, max_pages=max_pages, proxy=proxy)
     )
     return [l.model_dump(exclude={"images"}) for l in listings]
 
@@ -220,8 +222,10 @@ def zoopla_listing(
     bedrooms/bathrooms/floor area, agent info, EPC/floorplan flags,
     listing status, condition, furnished state, and breadcrumb path.
     """
+    import os
     from property_core import fetch_zoopla_listing
-    result = fetch_zoopla_listing(property_url_or_id)
+    proxy = (os.environ.get("ZOOPLA_PROXY_URL") or "").strip() or None
+    result = fetch_zoopla_listing(property_url_or_id, proxy=proxy)
     if include_images:
         return result.model_dump()
     return result.model_dump(exclude={"images"})

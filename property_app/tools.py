@@ -369,6 +369,7 @@ def search_zoopla(
     Note: Zoopla detail pages are blocked by Cloudflare; only search-card
     data is available.
     """
+    import os
     from statistics import median as stat_median
 
     from property_core import ZooplaLocationAPI, fetch_zoopla_listings
@@ -383,7 +384,8 @@ def search_zoopla(
         building_type=building_type,
     )
 
-    listings = fetch_zoopla_listings(search_url, max_pages=1)
+    proxy = (os.environ.get("ZOOPLA_PROXY_URL") or "").strip() or None
+    listings = fetch_zoopla_listings(search_url, max_pages=1, proxy=proxy)
     prices = [l.price for l in listings if l.price and l.price > 0]
     median_price = int(stat_median(prices)) if prices else None
 
@@ -435,9 +437,11 @@ def zoopla_search(
 
 def lookup_zoopla_listing(property_id: str) -> dict:
     """Raw Zoopla listing detail — returns dict."""
+    import os
     from property_core import fetch_zoopla_listing
 
-    listing = fetch_zoopla_listing(property_id)
+    proxy = (os.environ.get("ZOOPLA_PROXY_URL") or "").strip() or None
+    listing = fetch_zoopla_listing(property_id, proxy=proxy)
     return _slim(listing.model_dump(mode="json"))
 
 

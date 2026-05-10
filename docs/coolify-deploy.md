@@ -85,6 +85,11 @@ EPC_API_EMAIL=<your registered email>
 EPC_API_KEY=<your EPC key>
 COMPANIES_HOUSE_API_KEY=<your CH key>
 RIGHTMOVE_DELAY_SECONDS=0.6
+
+# Optional — only needed if the VPS's outbound IP gets Cloudflare-blocked
+# on zoopla.co.uk (common on Hetzner / Vultr / OVH datacenter ranges).
+# Pattern: http://user:pass@gate.<provider>.com:7000
+# ZOOPLA_PROXY_URL=
 ```
 
 Hit **Deploy**. First build takes ~3 min (uv install + bytecode compile);

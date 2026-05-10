@@ -2,11 +2,16 @@
 
 Both search and detail are reachable via curl_cffi (libcurl-impersonate
 replays a Chrome TLS fingerprint that defeats Cloudflare's bot mode).
-See docs/zoopla-onthemarket-discovery.md.
+On heavily-mitigated egress IPs (e.g. some Hetzner ranges) all
+``curl_cffi`` profiles can still be blocked; in that case set
+``ZOOPLA_PROXY_URL`` to a residential proxy (e.g.
+``http://user:pass@gate.smartproxy.com:7000``) and Zoopla calls route
+through it. See docs/zoopla-onthemarket-discovery.md.
 """
 
 from __future__ import annotations
 
+import os
 from functools import partial
 from typing import Literal, Optional
 
@@ -22,6 +27,12 @@ from property_core.zoopla_location import ZooplaLocationAPI
 from property_core.zoopla_scraper import fetch_listing, fetch_listings
 
 router = APIRouter(prefix="/zoopla", tags=["zoopla"])
+
+
+def _zoopla_proxy() -> str | None:
+    """Return ``ZOOPLA_PROXY_URL`` from the environment, ``None`` if unset."""
+    raw = os.environ.get("ZOOPLA_PROXY_URL")
+    return raw.strip() or None if raw else None
 
 
 @router.get("/search-url", response_model=ZooplaSearchURLResponse)
@@ -65,7 +76,7 @@ async def listings(
     """
     try:
         results = await anyio.to_thread.run_sync(
-            partial(fetch_listings, search_url, max_pages=max_pages)
+            partial(fetch_listings, search_url, max_pages=max_pages, proxy=_zoopla_proxy())
         )
         return ZooplaListingsResponse(count=len(results), results=results)
     except ImportError as exc:
@@ -82,7 +93,9 @@ async def listings(
 async def listing_detail(property_id: str) -> ZooplaListingDetailResponse:
     """Fetch full details for an individual Zoopla listing."""
     try:
-        result = await anyio.to_thread.run_sync(partial(fetch_listing, property_id))
+        result = await anyio.to_thread.run_sync(
+            partial(fetch_listing, property_id, proxy=_zoopla_proxy())
+        )
         return ZooplaListingDetailResponse(result=result)
     except ImportError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
