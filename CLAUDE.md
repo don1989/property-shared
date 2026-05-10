@@ -48,29 +48,24 @@ RUN_LIVE_TESTS=1 uv run --extra dev --extra apps pytest       # live network tes
 uv run --extra dev --extra apps pytest tests/test_ppd_service_live.py -v
 ```
 
-## Fly.io Deployment — Two Apps, One Repo
+## Deployment — Coolify (two apps, one repo)
 
-This repo deploys to **two separate Fly.io apps** with different Dockerfiles and configs:
+This repo deploys to a self-hosted [Coolify](https://coolify.io/)
+instance. Two Coolify Applications point at the same Git repo, each
+using a different Dockerfile:
 
-| App | Fly config | Dockerfile | URL | What it is |
-|-----|-----------|-----------|-----|------------|
-| `property-shared` | `fly.toml` | `Dockerfile` | property-shared.fly.dev | FastAPI REST API — core data layer, `/v1/health`, 2GB RAM |
-| `propertydata` | `fly.app.toml` | `Dockerfile.app` | propertydata.fly.dev | FastMCP MCP app — tools + Prefab dashboards, `/health`, 512MB |
+| App | Dockerfile | Port | Health | What it is |
+|-----|-----------|------|--------|------------|
+| `property-shared` | `Dockerfile` | 8080 | `/v1/health` | FastAPI REST API — core data layer |
+| `propertydata` | `Dockerfile.app` | 8080 | `/health` | FastMCP MCP server — tools + Prefab dashboards |
 
-`propertydata` is what Claude connects to as an MCP server. `property-shared` is the REST API backend (also used by `uk-property-mcp` on PyPI).
+Auto-deploy is via Coolify webhook on push to `main` (no GitHub Actions
+deploy job). The MCP service requires `MCP_TRANSPORT=http` env var or
+the container won't open a TCP listener — see `docs/coolify-deploy.md`
+for the full step-by-step.
 
-**Deploy manually:**
-```bash
-# property-shared (default)
-fly deploy --ha=false
-
-# propertydata (must specify config)
-fly deploy --config fly.app.toml --ha=false
-```
-
-**CI (release.yml)** — runs both on `release: published`. Requires two GitHub secrets:
-- `FLY_API_TOKEN` — scoped to `property-shared` (`fly tokens create deploy -a property-shared`)
-- `FLY_API_TOKEN_PROPERTYDATA` — scoped to `propertydata` (`fly tokens create deploy -a propertydata`)
+**CI (release.yml)** — runs only on `release: published` and only
+publishes to PyPI. Deploys are handled by Coolify directly.
 
 ## Architecture
 

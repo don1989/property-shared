@@ -29,7 +29,10 @@ from property_core.onthemarket_scraper import (
     fetch_listings as fetch_onthemarket_listings,
 )
 from property_core.zoopla_location import ZooplaLocationAPI
-from property_core.zoopla_scraper import fetch_listings as fetch_zoopla_listings
+from property_core.zoopla_scraper import (
+    fetch_listing as fetch_zoopla_listing,
+    fetch_listings as fetch_zoopla_listings,
+)
 
 try:
     import httpx
@@ -602,7 +605,7 @@ def rightmove_listing(
         rprint(json.dumps(detail["raw"], indent=2, default=str)[:5000])
 
 
-zoopla = typer.Typer(help="Zoopla commands (search only — detail pages blocked by Cloudflare)")
+zoopla = typer.Typer(help="Zoopla commands (search + detail via curl_cffi TLS impersonation)")
 app.add_typer(zoopla, name="zoopla")
 
 
@@ -640,7 +643,7 @@ def zoopla_listings(
     max_pages: Optional[int] = typer.Option(1),
     api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
 ) -> None:
-    """Fetch Zoopla search results via headless Playwright."""
+    """Fetch Zoopla search results via curl_cffi (TLS impersonation)."""
     http = _maybe_http_client(api_url)
     if http:
         data = http.get(
@@ -668,6 +671,50 @@ def zoopla_listings(
     rprint(table)
     if len(listings) > 20:
         typer.echo(f"...and {len(listings) - 20} more")
+
+
+@zoopla.command("listing")
+def zoopla_listing(
+    url_or_id: str = typer.Argument(..., help="Zoopla property URL or numeric ID"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    """Fetch full details for an individual Zoopla listing."""
+    http = _maybe_http_client(api_url)
+    if http:
+        prop_id = url_or_id.strip().rstrip("/").split("/")[-1] if "/" in url_or_id else url_or_id
+        data = http.get(f"/v1/zoopla/listing/{prop_id}")
+        detail = data.get("result", {})
+    else:
+        detail = fetch_zoopla_listing(url_or_id).model_dump()
+
+    table = Table(title=f"Zoopla: {detail.get('address') or url_or_id}")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("Price", f"£{detail['price']:,}" if detail.get("price") else "—")
+    table.add_row("Display price", detail.get("display_price") or "—")
+    table.add_row("Bedrooms", str(detail.get("bedrooms") or "—"))
+    table.add_row("Bathrooms", str(detail.get("bathrooms") or "—"))
+    table.add_row("Floor area", detail.get("floor_area") or "—")
+    table.add_row("Postcode", detail.get("postcode") or "—")
+    table.add_row("Property type", detail.get("property_type") or "—")
+    table.add_row("Listing status", detail.get("listing_status") or "—")
+    table.add_row("Listing condition", detail.get("listing_condition") or "—")
+    table.add_row("Tenure", detail.get("tenure") or "—")
+    table.add_row("Council tax band", detail.get("council_tax_band") or "—")
+    table.add_row("Furnished", detail.get("furnished_state") or "—")
+    table.add_row("Chain free", str(detail.get("chain_free")) if detail.get("chain_free") is not None else "—")
+    table.add_row("Has EPC", str(detail.get("has_epc")) if detail.get("has_epc") is not None else "—")
+    table.add_row("Has floorplan", str(detail.get("has_floorplan")) if detail.get("has_floorplan") is not None else "—")
+    table.add_row("Agent", detail.get("agent_name") or "—")
+    table.add_row("Branch ID", str(detail.get("branch_id") or "—"))
+    table.add_row("Date posted", detail.get("date_posted") or "—")
+    table.add_row("Images", str(len(detail.get("images") or [])))
+    rprint(table)
+
+    desc = detail.get("description")
+    if desc:
+        rprint("\n[bold]Description:[/bold]")
+        rprint(desc[:1500] + ("..." if len(desc) > 1500 else ""))
 
 
 otm = typer.Typer(help="OnTheMarket commands")

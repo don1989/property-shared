@@ -1,5 +1,45 @@
 # Changelog
 
+## v1.11.0 (2026-05-10)
+
+### New Features
+- **Zoopla listing detail** (`fetch_zoopla_listing(url_or_id)`) is now
+  implemented. Returns a `ZooplaListingDetail` with price, address,
+  postcode, bedrooms, bathrooms, floor area / sqft, tenure, council tax
+  band, agent name + branch id, listing status, listing condition,
+  furnished state, chain-free flag, EPC / floorplan flags, breadcrumbs,
+  date posted, image gallery, and the verbatim "Need to see info" rows.
+- **Zoopla search now works without a browser.** The scraper switched
+  from headless Playwright to `curl_cffi` (libcurl-impersonate replays
+  a real Chrome TLS handshake). `pip install 'property-shared[planning]'`
+  is no longer required for Zoopla — `curl_cffi` is a base dependency.
+  Search and detail pages both come back with a clean `200`, ~10× faster
+  than the Playwright path and with no chromium install.
+- **API**: new `/v1/zoopla/listing/{id}` endpoint.
+- **MCP** (both servers): new `zoopla_listing` tool.
+- **CLI**: new `property-cli zoopla listing <id|url>` command.
+
+### Deployment
+- Hosting moved from Fly.io to Coolify (self-hosted). New guide at
+  `docs/coolify-deploy.md`. The Fly deploy jobs in
+  `.github/workflows/release.yml` were removed; only the PyPI publish
+  step remains. Auto-deploy is now via Coolify webhook on push to `main`.
+- `fly.toml` and `fly.app.toml` deleted. All `*.fly.dev` URLs in
+  README / USER_GUIDE / LAUNCHGUIDE / property_app docs replaced with
+  `https://<your-mcp-domain>` placeholders.
+- New `MCP_PUBLIC_URL` env var on the MCP service. Used as the Prefab
+  CSP allowlist domain and as the base for the `/img` proxy URLs in
+  the `component_test` tool. Defaults to `http://localhost:8080` so
+  local dev runs without configuration.
+
+### Internals
+- New extracted JSON state path: parses the `ListingAnalyticsTaxonomy`
+  object out of one of the `self.__next_f.push([...])` RSC chunks on
+  the listing-detail page for branch / furnished / has_epc / has_floorplan
+  / chain_free / listing_condition data that's not in the ld+json block.
+- New `ZooplaListingDetail` Pydantic model + 1 unit test asserting on
+  every parsed field against the captured fixture.
+
 ## v1.10.0 (2026-05-09)
 
 ### New Features

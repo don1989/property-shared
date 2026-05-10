@@ -433,7 +433,7 @@ Add to your `.mcp.json`:
   "mcpServers": {
     "property": {
       "type": "http",
-      "url": "https://property-shared.fly.dev/mcp"
+      "url": "https://<your-mcp-domain>/mcp"
     }
   }
 }
@@ -451,13 +451,14 @@ For a local stdio connection:
 }
 ```
 
-### Connecting via HTTP (remote / Fly.io)
+### Connecting via HTTP (self-hosted)
+Once you've deployed the MCP service via Coolify (see `docs/coolify-deploy.md`):
 ```json
 {
   "mcpServers": {
     "property": {
       "type": "http",
-      "url": "https://property-shared.fly.dev/mcp"
+      "url": "https://<your-mcp-domain>/mcp"
     }
   }
 }

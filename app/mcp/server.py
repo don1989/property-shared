@@ -186,11 +186,11 @@ async def zoopla_search(
     max_price: int | None = None,
     max_pages: int = 1,
 ) -> list[dict]:
-    """Fetch Zoopla listings for a postcode (search only).
+    """Fetch Zoopla listings for a postcode.
 
     listing_type: "sale" or "rent". property_type: F=flat, D=detached,
-    S=semi, T=terraced. Zoopla detail pages are blocked by Cloudflare,
-    so only search-card data is available.
+    S=semi, T=terraced. Uses curl_cffi (TLS fingerprint impersonation)
+    to defeat Cloudflare; no browser required.
     """
     import anyio
     from property_core import ZooplaLocationAPI, fetch_zoopla_listings
@@ -207,6 +207,24 @@ async def zoopla_search(
         lambda: fetch_zoopla_listings(search_url, max_pages=max_pages)
     )
     return [l.model_dump(exclude={"images"}) for l in listings]
+
+
+@mcp.tool()
+def zoopla_listing(
+    property_url_or_id: str,
+    include_images: bool = False,
+) -> dict:
+    """Full detail for a single Zoopla listing (URL or numeric ID).
+
+    Returns price, address, postcode, tenure, council tax band,
+    bedrooms/bathrooms/floor area, agent info, EPC/floorplan flags,
+    listing status, condition, furnished state, and breadcrumb path.
+    """
+    from property_core import fetch_zoopla_listing
+    result = fetch_zoopla_listing(property_url_or_id)
+    if include_images:
+        return result.model_dump()
+    return result.model_dump(exclude={"images"})
 
 
 @mcp.tool()

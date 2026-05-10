@@ -47,4 +47,4 @@ uk-property, land-registry, rightmove, epc, rental-yield, buy-to-let, stamp-duty
 https://bouch.dev/products/property-report
 
 ## Health Check URL
-https://property-shared.fly.dev/v1/health
+`https://<your-api-domain>/v1/health` — once your Coolify API service has its custom domain wired up (see `docs/coolify-deploy.md`).

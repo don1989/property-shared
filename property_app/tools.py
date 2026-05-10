@@ -419,9 +419,9 @@ def zoopla_search(
 ) -> dict:
     """Search Zoopla property listings by postcode.
 
-    Builds a search URL, fetches the first page via headless Playwright,
-    and returns listing summaries with a median price. Zoopla per-listing
-    detail pages are not currently scrapable (Cloudflare Turnstile).
+    Builds a search URL, fetches the first page via curl_cffi (TLS
+    fingerprint impersonation defeats Cloudflare), and returns listing
+    summaries with a median price.
     """
     return search_zoopla(
         postcode,
@@ -431,6 +431,35 @@ def zoopla_search(
         radius=radius,
         building_type=building_type,
     )
+
+
+def lookup_zoopla_listing(property_id: str) -> dict:
+    """Raw Zoopla listing detail — returns dict."""
+    from property_core import fetch_zoopla_listing
+
+    listing = fetch_zoopla_listing(property_id)
+    return _slim(listing.model_dump(mode="json"))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"zoopla", "listings"},
+    timeout=30.0,
+)
+def zoopla_listing(
+    property_id: Annotated[
+        str,
+        Field(description="Zoopla property id (numeric, e.g. '72192746') or full URL"),
+    ],
+) -> dict:
+    """Full property detail data for a Zoopla listing.
+
+    Returns price, address, postcode, bedrooms/bathrooms/floor area,
+    tenure, council tax band, agent name, listing status, EPC/floorplan
+    flags, furnished state, breadcrumbs, and the verbatim "Need to see
+    info" rows.
+    """
+    return lookup_zoopla_listing(property_id)
 
 
 # ---------------------------------------------------------------------------
@@ -545,9 +574,21 @@ def onthemarket_listing(
 # ---------------------------------------------------------------------------
 
 
+def _public_url() -> str:
+    """Return the public origin of this MCP service (no trailing slash).
+
+    Read from the ``MCP_PUBLIC_URL`` env var, set per-deployment in
+    Coolify (or any other host). Falls back to localhost so dev runs
+    don't require any env config.
+    """
+    import os
+    raw = (os.environ.get("MCP_PUBLIC_URL") or "http://localhost:8080").rstrip("/")
+    return raw
+
+
 def _component_test_config():
     from fastmcp.apps import PrefabAppConfig, ResourceCSP
-    return PrefabAppConfig(csp=ResourceCSP(resource_domains=["https://propertydata.fly.dev"]))
+    return PrefabAppConfig(csp=ResourceCSP(resource_domains=[_public_url()]))
 
 
 @mcp.tool(
@@ -686,7 +727,11 @@ def component_test():
             # Section 9: Image (proxied external URL)
             Heading("9. Image (proxied URL)", level=3),
             Image(
-                src="https://propertydata.fly.dev/img?url=https%3A%2F%2Fmedia.rightmove.co.uk%3A443%2Fdir%2Fcrop%2F10%3A9-16%3A9%2Fproperty-photo%2Fb17d74096%2F174125315%2Fb17d74096dbcccb8c49b510d19b48625_max_476x317.jpeg",
+                src=(
+                    f"{_public_url()}/img?url=https%3A%2F%2Fmedia.rightmove.co.uk"
+                    "%3A443%2Fdir%2Fcrop%2F10%3A9-16%3A9%2Fproperty-photo"
+                    "%2Fb17d74096%2F174125315%2Fb17d74096dbcccb8c49b510d19b48625_max_476x317.jpeg"
+                ),
                 alt="Proxied Rightmove image",
                 height="200px",
             ),

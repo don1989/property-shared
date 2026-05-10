@@ -1,6 +1,6 @@
 [project]
 name = "property-shared"
-version = "1.10.0"
+version = "1.11.0"
 description = "UK property data MCP server and API — Land Registry comparable sales, Rightmove listings, EPC certificates, rental analysis, and stamp duty."
 readme = "README.md"
 license = "MIT"
@@ -42,6 +42,10 @@ dependencies = [
   "tenacity==9.1.2",
   "beautifulsoup4==4.14.3",
   "jinja2==3.1.6",
+  # curl_cffi (libcurl-impersonate wrapper) replays a real Chrome TLS
+  # fingerprint so plain requests can get past Cloudflare's bot mode.
+  # Used by the Zoopla scraper. ~10MB precompiled wheels.
+  "curl_cffi>=0.7,<1",
 ]
 
 [project.optional-dependencies]

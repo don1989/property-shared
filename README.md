@@ -8,7 +8,7 @@ UK property data in one package. Pulls Land Registry sales, EPC certificates, Ri
 
 Use it as a **Python library**, **CLI**, or **HTTP API**.
 
-> **MCP server moved:** The MCP server is now [`uk-property-mcp`](https://github.com/paulieb89/uk-property-mcp) — install with `pip install uk-property-mcp`. `https://property-shared.fly.dev/mcp` remains available as a permanent proxy to `uk-property-mcp`.
+> **MCP server:** [`uk-property-mcp`](https://github.com/paulieb89/uk-property-mcp) on PyPI for local install (`pip install uk-property-mcp`), or self-host the FastMCP server in this repo via Coolify (see `docs/coolify-deploy.md`).
 
 ## What You Get
 
@@ -17,7 +17,7 @@ Use it as a **Python library**, **CLI**, or **HTTP API**.
 | **Land Registry PPD** | Sold prices, dates, property types, area comps with median/percentiles |
 | **EPC Register** | Energy ratings, floor area, construction age, heating costs |
 | **Rightmove** | Current listings (sale + rent), prices, agents, listing details |
-| **Zoopla** | Search-result listings (sale + rent) — postcode-level market view *(search only; detail pages blocked by Cloudflare)* |
+| **Zoopla** | Current listings (sale + rent), prices, agents, listing details — tenure, council tax band, EPC/floorplan flags, listing condition (defeats Cloudflare via curl_cffi TLS impersonation) |
 | **OnTheMarket** | Current listings (sale + rent), prices, agents, listing details — tenure, lease years, ground rent, service charge, council tax band, EPC rating |
 | **Yield Analysis** | Gross yield from PPD sales + Rightmove rentals combined |
 | **Stamp Duty** | SDLT calculation with April 2025 bands, BTL surcharge, FTB relief |
@@ -103,8 +103,9 @@ property-cli rightmove search-url "NG1 1AA" --sort-by most_reduced
 property-cli onthemarket search-url "NG1 1AA"
 property-cli onthemarket listing 19100332
 
-# Zoopla search (requires the planning extra: pip install property-shared[planning])
+# Zoopla search + listing detail
 property-cli zoopla search-url "NG1 1AA"
+property-cli zoopla listing 72192746
 
 # Full property report
 property-cli report generate "10 Downing Street, SW1A 2AA" --property-type F
@@ -127,7 +128,7 @@ Key endpoints:
 - `GET /v1/analysis/rental?postcode=NG1+1AA&purchase_price=200000`
 - `GET /v1/rightmove/search-url?postcode=NG1+1AA&sort_by=newest`
 - `GET /v1/onthemarket/search-url?postcode=NG1+1AA` and `/v1/onthemarket/listings`, `/v1/onthemarket/listing/{id}`
-- `GET /v1/zoopla/search-url?postcode=NG1+1AA` and `/v1/zoopla/listings` *(requires `[planning]` extra)*
+- `GET /v1/zoopla/search-url?postcode=NG1+1AA` and `/v1/zoopla/listings`, `/v1/zoopla/listing/{id}`
 - `GET /v1/calculators/stamp-duty?price=300000&additional_property=true`
 - `POST /v1/property/report` with `{ "address": "10 Downing Street, SW1A 2AA" }`
 
@@ -171,16 +172,19 @@ Four-layer separation — core stays framework-agnostic:
 property_core/     Pure Python library (all business logic)
 app/               FastAPI wrapper (thin HTTP layer)
 property_cli/      Typer CLI (thin CLI layer)
-property_app/      MCP App with Prefab UI dashboards (propertydata.fly.dev/mcp)
+property_app/      MCP App with Prefab UI dashboards (FastMCP HTTP server)
 ```
 
 All four consumers import directly from `property_core`. No adapter layers.
 
-## Deploy (Fly.io)
+## Deploy (Coolify)
 
-```bash
-fly secrets set EPC_API_EMAIL=... EPC_API_KEY=...
-fly deploy
-```
+Two Coolify Applications off the same repo:
 
-Deployed at `https://property-shared.fly.dev` with API docs at `/docs` and MCP endpoint at `/mcp`.
+| Service | Dockerfile | Port | Healthcheck |
+|---|---|---|---|
+| REST API | `Dockerfile` | 8080 | `/v1/health` |
+| MCP | `Dockerfile.app` | 8080 | `/health` (requires `MCP_TRANSPORT=http`) |
+
+Step-by-step (VPS provisioning, DNS, Let's Encrypt, webhook auto-deploy,
+connecting Claude) is in [docs/coolify-deploy.md](docs/coolify-deploy.md).
