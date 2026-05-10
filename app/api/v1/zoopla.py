@@ -35,6 +35,31 @@ def _zoopla_proxy() -> str | None:
     return raw.strip() or None if raw else None
 
 
+def _zoopla_enabled() -> bool:
+    """Whether Zoopla scraping is enabled in this deployment.
+
+    Defaults to ``True`` so local dev / library use needs no config.
+    Hosted deployments on flagged datacenter ASNs (e.g. Hetzner) should
+    set ``ZOOPLA_ENABLED=false`` until a residential proxy is wired up
+    via ``ZOOPLA_PROXY_URL``.
+    """
+    raw = (os.environ.get("ZOOPLA_ENABLED") or "true").strip().lower()
+    return raw in ("true", "1", "yes", "on")
+
+
+def _require_enabled() -> None:
+    if not _zoopla_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Zoopla is disabled in this deployment (ZOOPLA_ENABLED=false). "
+                "Cloudflare on zoopla.co.uk gates many datacenter ASNs even "
+                "with curl_cffi profile rotation; set ZOOPLA_PROXY_URL to a "
+                "residential proxy and ZOOPLA_ENABLED=true to re-enable."
+            ),
+        )
+
+
 @router.get("/search-url", response_model=ZooplaSearchURLResponse)
 async def search_url(
     postcode: str = Query(..., min_length=2),
@@ -74,6 +99,7 @@ async def listings(
 
     Uses ``curl_cffi`` to defeat Cloudflare; no browser required.
     """
+    _require_enabled()
     try:
         results = await anyio.to_thread.run_sync(
             partial(fetch_listings, search_url, max_pages=max_pages, proxy=_zoopla_proxy())
@@ -92,6 +118,7 @@ async def listings(
 @router.get("/listing/{property_id}", response_model=ZooplaListingDetailResponse)
 async def listing_detail(property_id: str) -> ZooplaListingDetailResponse:
     """Fetch full details for an individual Zoopla listing."""
+    _require_enabled()
     try:
         result = await anyio.to_thread.run_sync(
             partial(fetch_listing, property_id, proxy=_zoopla_proxy())

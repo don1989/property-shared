@@ -397,42 +397,15 @@ def search_zoopla(
     }
 
 
-@mcp.tool(
-    annotations={"readOnlyHint": True, "openWorldHint": True},
-    tags={"zoopla", "listings"},
-    timeout=120.0,
-)
-def zoopla_search(
-    postcode: Annotated[str, Field(description="UK postcode or area name to search")],
-    property_type: Annotated[str, Field(description="'sale' or 'rent'")] = "sale",
-    min_bedrooms: Annotated[
-        int | None, Field(description="Minimum number of bedrooms")
-    ] = None,
-    max_price: Annotated[
-        int | None, Field(description="Maximum price filter")
-    ] = None,
-    radius: Annotated[
-        float | None, Field(description="Search radius in miles")
-    ] = None,
-    building_type: Annotated[
-        str | None,
-        Field(description="Building type filter: F=flat, D=detached, S=semi, T=terraced"),
-    ] = None,
-) -> dict:
-    """Search Zoopla property listings by postcode.
+# Zoopla tools env-gated. Hidden from the registered tool list when
+# ZOOPLA_ENABLED is not truthy (default behaviour on Coolify deployments
+# where the VPS's Hetzner ASN is Cloudflare-blocked for zoopla.co.uk).
+# Set ZOOPLA_ENABLED=true (and ZOOPLA_PROXY_URL=...) to register them.
+import os as _os
 
-    Builds a search URL, fetches the first page via curl_cffi (TLS
-    fingerprint impersonation defeats Cloudflare), and returns listing
-    summaries with a median price.
-    """
-    return search_zoopla(
-        postcode,
-        property_type=property_type,
-        min_bedrooms=min_bedrooms,
-        max_price=max_price,
-        radius=radius,
-        building_type=building_type,
-    )
+_ZOOPLA_ENABLED = (_os.environ.get("ZOOPLA_ENABLED") or "true").strip().lower() in (
+    "true", "1", "yes", "on",
+)
 
 
 def lookup_zoopla_listing(property_id: str) -> dict:
@@ -445,25 +418,65 @@ def lookup_zoopla_listing(property_id: str) -> dict:
     return _slim(listing.model_dump(mode="json"))
 
 
-@mcp.tool(
-    annotations={"readOnlyHint": True, "openWorldHint": True},
-    tags={"zoopla", "listings"},
-    timeout=30.0,
-)
-def zoopla_listing(
-    property_id: Annotated[
-        str,
-        Field(description="Zoopla property id (numeric, e.g. '72192746') or full URL"),
-    ],
-) -> dict:
-    """Full property detail data for a Zoopla listing.
+if _ZOOPLA_ENABLED:
 
-    Returns price, address, postcode, bedrooms/bathrooms/floor area,
-    tenure, council tax band, agent name, listing status, EPC/floorplan
-    flags, furnished state, breadcrumbs, and the verbatim "Need to see
-    info" rows.
-    """
-    return lookup_zoopla_listing(property_id)
+    @mcp.tool(
+        annotations={"readOnlyHint": True, "openWorldHint": True},
+        tags={"zoopla", "listings"},
+        timeout=120.0,
+    )
+    def zoopla_search(
+        postcode: Annotated[str, Field(description="UK postcode or area name to search")],
+        property_type: Annotated[str, Field(description="'sale' or 'rent'")] = "sale",
+        min_bedrooms: Annotated[
+            int | None, Field(description="Minimum number of bedrooms")
+        ] = None,
+        max_price: Annotated[
+            int | None, Field(description="Maximum price filter")
+        ] = None,
+        radius: Annotated[
+            float | None, Field(description="Search radius in miles")
+        ] = None,
+        building_type: Annotated[
+            str | None,
+            Field(description="Building type filter: F=flat, D=detached, S=semi, T=terraced"),
+        ] = None,
+    ) -> dict:
+        """Search Zoopla property listings by postcode.
+
+        Builds a search URL, fetches the first page via curl_cffi (TLS
+        fingerprint impersonation defeats Cloudflare), and returns listing
+        summaries with a median price.
+        """
+        return search_zoopla(
+            postcode,
+            property_type=property_type,
+            min_bedrooms=min_bedrooms,
+            max_price=max_price,
+            radius=radius,
+            building_type=building_type,
+        )
+
+
+    @mcp.tool(
+        annotations={"readOnlyHint": True, "openWorldHint": True},
+        tags={"zoopla", "listings"},
+        timeout=30.0,
+    )
+    def zoopla_listing(
+        property_id: Annotated[
+            str,
+            Field(description="Zoopla property id (numeric, e.g. '72192746') or full URL"),
+        ],
+    ) -> dict:
+        """Full property detail data for a Zoopla listing.
+
+        Returns price, address, postcode, bedrooms/bathrooms/floor area,
+        tenure, council tax band, agent name, listing status, EPC/floorplan
+        flags, furnished state, breadcrumbs, and the verbatim "Need to see
+        info" rows.
+        """
+        return lookup_zoopla_listing(property_id)
 
 
 # ---------------------------------------------------------------------------
