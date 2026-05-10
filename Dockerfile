@@ -7,11 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# System deps for Playwright/Chromium
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-    libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0 \
+# `curl` is needed by Coolify's container healthcheck. The previous block
+# of libnss3/libxkbcommon0/etc here was for Playwright/Chromium back when
+# Zoopla scraping needed a browser; we're on curl_cffi now (libcurl
+# impersonation, no browser), so those are dropped — saves ~50MB.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
@@ -19,9 +19,6 @@ RUN pip install --no-cache-dir uv
 # Copy dependency manifests first for better layer caching
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --extra api
-
-# Planning disabled: scraping requires UK residential IP
-# RUN uv sync ... --extra planning && playwright install chromium
 
 # Copy application code
 COPY app ./app
