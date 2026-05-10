@@ -1,6 +1,6 @@
 # Property Data MCP App
 
-MCP server with interactive Prefab UI dashboards, wrapping `property_core` for AI hosts. Deployed at https://propertydata.fly.dev/mcp
+MCP server with interactive Prefab UI dashboards, wrapping `property_core` for AI hosts. Self-host via Coolify (see `../docs/coolify-deploy.md`).
 
 ## Quick Start
 
@@ -24,7 +24,7 @@ Add to `.mcp.json`:
   "mcpServers": {
     "propertydata": {
       "type": "http",
-      "url": "https://propertydata.fly.dev/mcp"
+      "url": "https://<your-mcp-domain>/mcp"
     }
   }
 }
@@ -99,8 +99,7 @@ Built on FastMCP 3.2+ and Prefab UI 0.19+. All tools import directly from `prope
 
 ## Deployment
 
-Deployed on Fly.io as `propertydata`. To redeploy:
-
-```bash
-fly deploy --config fly.app.toml
-```
+Self-hosted via Coolify — full step-by-step in
+[../docs/coolify-deploy.md](../docs/coolify-deploy.md). The MCP service
+uses `Dockerfile.app` with `MCP_TRANSPORT=http` set in the service env.
+Coolify auto-deploys on push to `main` via webhook.

@@ -574,9 +574,21 @@ def onthemarket_listing(
 # ---------------------------------------------------------------------------
 
 
+def _public_url() -> str:
+    """Return the public origin of this MCP service (no trailing slash).
+
+    Read from the ``MCP_PUBLIC_URL`` env var, set per-deployment in
+    Coolify (or any other host). Falls back to localhost so dev runs
+    don't require any env config.
+    """
+    import os
+    raw = (os.environ.get("MCP_PUBLIC_URL") or "http://localhost:8080").rstrip("/")
+    return raw
+
+
 def _component_test_config():
     from fastmcp.apps import PrefabAppConfig, ResourceCSP
-    return PrefabAppConfig(csp=ResourceCSP(resource_domains=["https://propertydata.fly.dev"]))
+    return PrefabAppConfig(csp=ResourceCSP(resource_domains=[_public_url()]))
 
 
 @mcp.tool(
@@ -715,7 +727,11 @@ def component_test():
             # Section 9: Image (proxied external URL)
             Heading("9. Image (proxied URL)", level=3),
             Image(
-                src="https://propertydata.fly.dev/img?url=https%3A%2F%2Fmedia.rightmove.co.uk%3A443%2Fdir%2Fcrop%2F10%3A9-16%3A9%2Fproperty-photo%2Fb17d74096%2F174125315%2Fb17d74096dbcccb8c49b510d19b48625_max_476x317.jpeg",
+                src=(
+                    f"{_public_url()}/img?url=https%3A%2F%2Fmedia.rightmove.co.uk"
+                    "%3A443%2Fdir%2Fcrop%2F10%3A9-16%3A9%2Fproperty-photo"
+                    "%2Fb17d74096%2F174125315%2Fb17d74096dbcccb8c49b510d19b48625_max_476x317.jpeg"
+                ),
                 alt="Proxied Rightmove image",
                 height="200px",
             ),

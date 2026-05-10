@@ -8,7 +8,7 @@ UK property data in one package. Pulls Land Registry sales, EPC certificates, Ri
 
 Use it as a **Python library**, **CLI**, or **HTTP API**.
 
-> **MCP server moved:** The MCP server is now [`uk-property-mcp`](https://github.com/paulieb89/uk-property-mcp) — install with `pip install uk-property-mcp`. `https://property-shared.fly.dev/mcp` remains available as a permanent proxy to `uk-property-mcp`.
+> **MCP server:** [`uk-property-mcp`](https://github.com/paulieb89/uk-property-mcp) on PyPI for local install (`pip install uk-property-mcp`), or self-host the FastMCP server in this repo via Coolify (see `docs/coolify-deploy.md`).
 
 ## What You Get
 
@@ -172,16 +172,19 @@ Four-layer separation — core stays framework-agnostic:
 property_core/     Pure Python library (all business logic)
 app/               FastAPI wrapper (thin HTTP layer)
 property_cli/      Typer CLI (thin CLI layer)
-property_app/      MCP App with Prefab UI dashboards (propertydata.fly.dev/mcp)
+property_app/      MCP App with Prefab UI dashboards (FastMCP HTTP server)
 ```
 
 All four consumers import directly from `property_core`. No adapter layers.
 
-## Deploy (Fly.io)
+## Deploy (Coolify)
 
-```bash
-fly secrets set EPC_API_EMAIL=... EPC_API_KEY=...
-fly deploy
-```
+Two Coolify Applications off the same repo:
 
-Deployed at `https://property-shared.fly.dev` with API docs at `/docs` and MCP endpoint at `/mcp`.
+| Service | Dockerfile | Port | Healthcheck |
+|---|---|---|---|
+| REST API | `Dockerfile` | 8080 | `/v1/health` |
+| MCP | `Dockerfile.app` | 8080 | `/health` (requires `MCP_TRANSPORT=http`) |
+
+Step-by-step (VPS provisioning, DNS, Let's Encrypt, webhook auto-deploy,
+connecting Claude) is in [docs/coolify-deploy.md](docs/coolify-deploy.md).

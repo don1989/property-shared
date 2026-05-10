@@ -24,6 +24,13 @@
   `docs/coolify-deploy.md`. The Fly deploy jobs in
   `.github/workflows/release.yml` were removed; only the PyPI publish
   step remains. Auto-deploy is now via Coolify webhook on push to `main`.
+- `fly.toml` and `fly.app.toml` deleted. All `*.fly.dev` URLs in
+  README / USER_GUIDE / LAUNCHGUIDE / property_app docs replaced with
+  `https://<your-mcp-domain>` placeholders.
+- New `MCP_PUBLIC_URL` env var on the MCP service. Used as the Prefab
+  CSP allowlist domain and as the base for the `/img` proxy URLs in
+  the `component_test` tool. Defaults to `http://localhost:8080` so
+  local dev runs without configuration.
 
 ### Internals
 - New extracted JSON state path: parses the `ListingAnalyticsTaxonomy`

@@ -107,13 +107,19 @@ Same flow as step 5, but:
 Environment variables:
 
 ```
-MCP_TRANSPORT=http        # CRITICAL — defaults to stdio otherwise
+MCP_TRANSPORT=http              # CRITICAL — defaults to stdio otherwise
+MCP_PUBLIC_URL=https://mcp.yourdomain.com
 FASTMCP_HOST=0.0.0.0
 FASTMCP_PORT=8080
 EPC_API_EMAIL=<same as above>
 EPC_API_KEY=<same as above>
 COMPANIES_HOUSE_API_KEY=<same as above>
 ```
+
+`MCP_PUBLIC_URL` is the canonical origin for this service — it's used as
+the Prefab CSP allowlist domain and as the base for the `/img` proxy
+URLs surfaced in test components. Without it, those defaults to
+`http://localhost:8080`.
 
 > `MCP_TRANSPORT=http` is mandatory. Without it, `property_app/server.py`
 > defaults to stdio mode and the container never opens a TCP listener,

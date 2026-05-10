@@ -1,8 +1,8 @@
 # Property App — MCP App with Prefab UI
 
-The 4th consumer of `property_core` (alongside API, CLI, MCP server). A FastMCP 3.2+ server with Prefab UI 0.19+ dashboards, deployed on Fly.io.
+The 4th consumer of `property_core` (alongside API, CLI, MCP server). A FastMCP 3.2+ server with Prefab UI 0.19+ dashboards, self-hosted via Coolify.
 
-**Production:** `https://propertydata.fly.dev/mcp`
+**Production:** `https://<your-mcp-domain>/mcp` (configured per Coolify Application — see `../docs/coolify-deploy.md`).
 
 ## Commands
 
@@ -15,8 +15,9 @@ uv run --extra apps fastmcp dev apps property_app/server.py:mcp   # dev preview 
 # Tests
 uv run --extra dev pytest tests/test_app_*.py -v
 
-# Deploy
-fly deploy --config fly.app.toml
+# Deploy: handled by Coolify webhook on push to main
+# (see ../docs/coolify-deploy.md). To deploy manually from a workstation
+# with Coolify CLI installed, use `coolify deploy`.
 ```
 
 ## Architecture
@@ -152,12 +153,12 @@ To check a specific component's props: `https://prefab.prefect.io/docs/protocol/
 
 ## Deployment
 
-- **Fly.io app:** `propertydata` in LHR (London)
+- **Coolify Application:** points at `Dockerfile.app`. Auto-deploy via webhook on push to `main`.
 - **Dockerfile.app:** Python 3.11 slim, `uv sync --frozen --no-dev --extra apps`
 - **Health check:** `GET /health` every 30s (implemented in `server.py`)
-- **Transport:** `MCP_TRANSPORT=http` with `stateless_http=True`
-- **VM:** 512MB RAM, shared CPU, 1 machine minimum
-- **Image proxy:** `/img?url=...` proxies Rightmove images through our domain (bypasses CSP for non-claude.ai hosts)
+- **Transport:** `MCP_TRANSPORT=http` with `stateless_http=True` — set in the Coolify service env
+- **VM:** 512MB RAM is enough; bump to 1GB if you co-locate other services
+- **Image proxy:** `/img?url=...` proxies Rightmove images through this service's own domain (bypasses CSP for non-claude.ai hosts). The Prefab CSP allowlist domain is taken from the `MCP_PUBLIC_URL` env var.
 
 ## Environment Variables
 
