@@ -85,6 +85,18 @@ EPC_API_EMAIL=<your registered email>
 EPC_API_KEY=<your EPC key>
 COMPANIES_HOUSE_API_KEY=<your CH key>
 RIGHTMOVE_DELAY_SECONDS=0.6
+
+# Zoopla is OFF by default in hosted deployments because Cloudflare on
+# zoopla.co.uk gates Hetzner / Vultr / OVH and similar datacenter ASNs
+# regardless of TLS fingerprint. Leaving it disabled means /v1/zoopla/*
+# endpoints return 503 with a clear message and the MCP servers don't
+# advertise zoopla_search / zoopla_listing tools.
+ZOOPLA_ENABLED=false
+
+# To re-enable Zoopla, sign up for a residential proxy (IPRoyal /
+# Smartproxy / NetNut / Webshare) and set both:
+# ZOOPLA_ENABLED=true
+# ZOOPLA_PROXY_URL=http://user:pass@gate.<provider>.com:7000
 ```
 
 Hit **Deploy**. First build takes ~3 min (uv install + bytecode compile);
@@ -114,6 +126,8 @@ FASTMCP_PORT=8080
 EPC_API_EMAIL=<same as above>
 EPC_API_KEY=<same as above>
 COMPANIES_HOUSE_API_KEY=<same as above>
+ZOOPLA_ENABLED=false            # see REST API service notes for why
+# ZOOPLA_PROXY_URL=             # set + flip ZOOPLA_ENABLED=true to re-enable
 ```
 
 `MCP_PUBLIC_URL` is the canonical origin for this service — it's used as

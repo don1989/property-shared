@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.11.1 (2026-05-10)
+
+### Operational
+- **`ZOOPLA_ENABLED` env var** (default `true`): when set to `false` on a
+  deployment, `/v1/zoopla/*` endpoints return `503` with a clear message
+  and both MCP servers stop advertising `zoopla_search` /
+  `zoopla_listing` tools. Local CLI / library use is unchanged.
+- **`ZOOPLA_PROXY_URL` env var**: routes Zoopla calls through a
+  residential proxy when set. Plumbed through API + both MCP servers.
+- **Profile rotation in `zoopla_scraper`**: `fetch_listing` and
+  `fetch_listings` now try the caller's profile first, then fall through
+  `_FALLBACK_PROFILES = (chrome120, safari17_2_ios, firefox133, chrome116)`.
+  When all profiles fail the raised `ZooplaError` lists each failure for
+  fast triage. New `fallback_profiles=()` kwarg opts out.
+- **Coolify guide updated** to set `ZOOPLA_ENABLED=false` by default —
+  Cloudflare on zoopla.co.uk gates many datacenter ASNs (Hetzner /
+  Vultr / OVH) regardless of TLS fingerprint, so a residential proxy
+  is required for hosted Zoopla.
+
+### Background
+The v1.11.0 curl_cffi switch defeats CF's TLS fingerprint detection but
+not its IP-reputation gate. From a clean residential IP everything
+works (verified against zoopla.co.uk live). From flagged datacenter IPs
+all four impersonation profiles get a 403, hence the env-gating.
+
 ## v1.11.0 (2026-05-10)
 
 ### New Features

@@ -176,55 +176,73 @@ def rightmove_listing(
     return result.model_dump(exclude={"images", "floorplans"})
 
 
-@mcp.tool()
-async def zoopla_search(
-    postcode: str,
-    listing_type: str = "sale",
-    radius: float | None = None,
-    property_type: str | None = None,
-    min_bedrooms: int | None = None,
-    max_price: int | None = None,
-    max_pages: int = 1,
-) -> list[dict]:
-    """Fetch Zoopla listings for a postcode.
+# Zoopla tools are env-gated. Hetzner / OVH / Vultr / similar datacenter
+# ASNs get blocked by Cloudflare on zoopla.co.uk regardless of the
+# curl_cffi profile we use; in those deployments the right move is to
+# hide these tools entirely so the LLM doesn't see + try to use them.
+# Set ZOOPLA_ENABLED=true (and ZOOPLA_PROXY_URL=...) to register them.
+import os as _os
 
-    listing_type: "sale" or "rent". property_type: F=flat, D=detached,
-    S=semi, T=terraced. Uses curl_cffi (TLS fingerprint impersonation)
-    to defeat Cloudflare; no browser required.
-    """
-    import anyio
-    from property_core import ZooplaLocationAPI, fetch_zoopla_listings
-    loc_api = ZooplaLocationAPI()
-    search_url = loc_api.build_search_url(
-        postcode,
-        property_type=listing_type,
-        building_type=property_type,
-        min_bedrooms=min_bedrooms,
-        max_price=max_price,
-        radius=radius,
-    )
-    listings = await anyio.to_thread.run_sync(
-        lambda: fetch_zoopla_listings(search_url, max_pages=max_pages)
-    )
-    return [l.model_dump(exclude={"images"}) for l in listings]
+_ZOOPLA_ENABLED = (_os.environ.get("ZOOPLA_ENABLED") or "true").strip().lower() in (
+    "true", "1", "yes", "on",
+)
 
 
-@mcp.tool()
-def zoopla_listing(
-    property_url_or_id: str,
-    include_images: bool = False,
-) -> dict:
-    """Full detail for a single Zoopla listing (URL or numeric ID).
+if _ZOOPLA_ENABLED:
 
-    Returns price, address, postcode, tenure, council tax band,
-    bedrooms/bathrooms/floor area, agent info, EPC/floorplan flags,
-    listing status, condition, furnished state, and breadcrumb path.
-    """
-    from property_core import fetch_zoopla_listing
-    result = fetch_zoopla_listing(property_url_or_id)
-    if include_images:
-        return result.model_dump()
-    return result.model_dump(exclude={"images"})
+    @mcp.tool()
+    async def zoopla_search(
+        postcode: str,
+        listing_type: str = "sale",
+        radius: float | None = None,
+        property_type: str | None = None,
+        min_bedrooms: int | None = None,
+        max_price: int | None = None,
+        max_pages: int = 1,
+    ) -> list[dict]:
+        """Fetch Zoopla listings for a postcode.
+
+        listing_type: "sale" or "rent". property_type: F=flat, D=detached,
+        S=semi, T=terraced. Uses curl_cffi (TLS fingerprint impersonation)
+        to defeat Cloudflare; no browser required.
+        """
+        import anyio
+        import os
+        from property_core import ZooplaLocationAPI, fetch_zoopla_listings
+        loc_api = ZooplaLocationAPI()
+        search_url = loc_api.build_search_url(
+            postcode,
+            property_type=listing_type,
+            building_type=property_type,
+            min_bedrooms=min_bedrooms,
+            max_price=max_price,
+            radius=radius,
+        )
+        proxy = (os.environ.get("ZOOPLA_PROXY_URL") or "").strip() or None
+        listings = await anyio.to_thread.run_sync(
+            lambda: fetch_zoopla_listings(search_url, max_pages=max_pages, proxy=proxy)
+        )
+        return [l.model_dump(exclude={"images"}) for l in listings]
+
+
+    @mcp.tool()
+    def zoopla_listing(
+        property_url_or_id: str,
+        include_images: bool = False,
+    ) -> dict:
+        """Full detail for a single Zoopla listing (URL or numeric ID).
+
+        Returns price, address, postcode, tenure, council tax band,
+        bedrooms/bathrooms/floor area, agent info, EPC/floorplan flags,
+        listing status, condition, furnished state, and breadcrumb path.
+        """
+        import os
+        from property_core import fetch_zoopla_listing
+        proxy = (os.environ.get("ZOOPLA_PROXY_URL") or "").strip() or None
+        result = fetch_zoopla_listing(property_url_or_id, proxy=proxy)
+        if include_images:
+            return result.model_dump()
+        return result.model_dump(exclude={"images"})
 
 
 @mcp.tool()
