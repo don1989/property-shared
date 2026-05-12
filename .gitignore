@@ -50,4 +50,5 @@ docs/superpowers/
 # Removed from tracking (kept locally for reference)
 example_ref/
 apify_actors/
-scripts/
+scripts/*
+!scripts/diagnose_comps_filters.py
