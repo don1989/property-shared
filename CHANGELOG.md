@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.11.0 (2026-05-12)
+
+### Breaking Changes
+- Removed `property_report` MCP tool from `property-shared.fly.dev/mcp` and from `propertydata.fly.dev/mcp`. Also removed `get_property_data` from `propertydata.fly.dev/mcp`. Both were multi-source composition tools that hid which input produced which output and were prone to data-quality bugs (e.g. the v1.10.x yield calc was silently dividing current rent by a historical sale price).
+- Replaced by a `full_property_analysis` MCP **prompt** on both servers. The prompt instructs the LLM to call the underlying primitive tools (`property_comps`/`search_comps`, `property_yield`/`get_yield`, `property_epc`/`epc_lookup`, `rightmove_search`) explicitly and synthesise. Every input is now visible in the LLM's working text.
+- REST `POST /v1/property/report` and CLI `property-cli report generate` are unchanged — they call `PropertyReportService` directly without going through MCP.
+- Downstream consumers (`uk-property-mcp`, `property-descriptions-mcp`): if they exposed `property_report` as a tool, that registration needs to be removed on their next release.
+
+### Added — MCP Resources (non-breaking)
+- `councils://list` — full UK planning portal registry (99 councils) as a queryable resource. LLMs can read this once instead of repeatedly calling `planning_search` for individual lookups.
+- `council://{code}` — single-council profile by code/slug.
+- `sdlt-bands://current` — April 2025 UK Stamp Duty Land Tax band schedule, including additional-property + non-resident surcharges and first-time buyer relief. LLMs can cite the bands directly without forcing a `stamp_duty` calculator call.
+- `epc-ratings://reference` — A–G EPC band definitions, SAP score ranges, and regulatory context (April 2025 rental minimum of band C). Grounds LLM EPC explanations in canonical data rather than training-data recall.
+
+### Removed — dev utilities
+- `component_test` and `image_test` MCP tools removed from `propertydata.fly.dev/mcp`. These were internal dev artifacts that polluted the production tool selection surface.
+
+### Added — MCP Prompts (non-breaking)
+- `full_property_analysis` — replaces the removed `property_report` / `get_property_data` tools.
+- `area_comparison` — multi-postcode comparison workflow (compares 2-3 postcodes on price, yield, market depth).
+- `investment_analysis` — single-property buy-to-let evaluation (yield, SDLT, EPC compliance, key risks).
+
 ## v1.10.0 (2026-05-12)
 
 ### Breaking Changes
