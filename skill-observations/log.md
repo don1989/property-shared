@@ -95,3 +95,63 @@
 **Suggested improvement:** Use "You MUST" for steps that are non-negotiable. The updated docstring reads "You MUST cross-reference each cert's floor_area against the listing's floor_area_sqm (accept within ±5 sqm) AND property_type must match." Also explicitly handle the fallback: "If floor_area is unavailable on the listing, filter by property_type only and return all candidates." Covering the fallback prevents the LLM from guessing when the discriminator is missing.
 **Principle:** Required cross-referencing steps in tool descriptions must use imperative language ("MUST", "must match"). Suggestive phrasing ("match by", "use X to") is treated as optional. Always cover the fallback case explicitly.
 **Status:** OPEN
+
+---
+
+### Observation 9
+**Date:** 2026-05-17
+**Session context:** Porting `property_epc_search` docstring from plain MCP server to MCP app `epc_search`
+**Skill:** General — docstring porting across consumers
+**Type:** Bug — workflow tool names not updated when porting docstrings between consumers
+**Issue:** When porting the EPC browse workflow docstring from `app/mcp/server.py` to `property_app/tools.py`, step 1 was copied as "Call `rightmove_search`..." but the correct tool in the MCP app context is `rightmove_listing`. The plain server had `rightmove_listing` correctly; the MCP app copy introduced the wrong tool name. This directs the LLM to call a tool that returns listing summaries without `floor_area_sqm` — the exact field the workflow depends on.
+**Suggested improvement:** When porting a multi-step workflow docstring from one consumer to another, treat every tool name in the workflow as a variable that must be verified against the target consumer's tool inventory. A quick grep for each named tool confirms it exists in that server before committing.
+**Principle:** Tool names in workflow docstrings are consumer-specific. Copy-pasting a workflow description without auditing each tool reference against the target consumer's tool list is a latent functional bug.
+**Status:** CLOSED — fixed in commit 23a2c57.
+
+---
+
+### Observation 10
+**Date:** 2026-05-17
+**Session context:** Writing unit test for `property_epc_search` None-value stripping
+**Skill:** General — testing patterns with mocked Pydantic models
+**Type:** Bug — test asserting behavior that mocks cannot exercise
+**Issue:** A test was written to verify that `exclude_none=True` in `model_dump()` strips None values from the cert list. The mock returned None values in `model_dump.return_value` and the test asserted those keys were absent in the output. But `model_dump` is a MagicMock — it ignores the `exclude_none=True` kwarg and returns whatever was set as `return_value`. The test was asserting Pydantic's own behavior through a path that bypasses Pydantic entirely, so it failed immediately.
+**Suggested improvement:** When testing code that calls `model_dump(exclude_none=True)`, either (a) use a real Pydantic model instance so `exclude_none` actually takes effect, or (b) have the mock return a dict that already omits None keys (simulating what a real model produces), and test the surrounding logic rather than Pydantic's serialisation. For this codebase, option (b) is simpler.
+**Principle:** Mocks ignore keyword arguments. Never write a test that asserts the effect of a kwarg passed to a mocked method — the assertion will reflect the mock's `return_value`, not the kwarg's effect.
+**Status:** CLOSED — test rewritten to verify keep-field filtering (what our code does) rather than `exclude_none` behavior (what Pydantic does).
+
+---
+
+### Observation 9
+**Date:** 2026-05-17
+**Session context:** Pre-push code review of 3 unpushed commits — epc_search docstring bug found
+**Skill:** fastmcp-design-review / code-review
+**Type:** Bug class — tool workflow docstrings referencing wrong tool names
+**Issue:** `epc_search` in `property_app/tools.py` step 1 said "Call rightmove_search to obtain floor_area_sqm" — but `rightmove_search` returns listing summaries with no floor area. `rightmove_listing` (the detail tool) is what returns `floor_area_sqm`. The plain MCP server version of the same tool correctly named `rightmove_listing`. The bug was introduced because the two surfaces were written separately and the docstring wasn't cross-checked against the tool list.
+**Suggested improvement:** Before committing, verify every tool name mentioned in a docstring workflow exists at the same MCP surface and accepts the described inputs. When the same workflow is implemented on two surfaces (plain server + MCP app), diff the docstrings to confirm they name the same tools. The wrong tool name won't raise an error — it will silently cause the LLM to call the wrong tool and return incomplete data.
+**Principle:** Workflow tool names in docstrings are executable instructions to the LLM — verify them against the actual tool list at the same surface before committing. Wrong tool names are silent bugs.
+**Status:** OPEN
+
+---
+
+### Observation 10
+**Date:** 2026-05-17
+**Session context:** Pre-push code review — tool naming inconsistency across plain MCP server and MCP app
+**Skill:** fastmcp-design-review
+**Type:** Design pattern — cross-surface tool name consistency
+**Issue:** The same lmk_key lookup tool was named `get_epc_certificate` on the plain server (`app/mcp/server.py`) and `epc_certificate` on the MCP app (`property_app/tools.py`). Additionally, the plain server's `property_epc_search` docstring referenced `get_certificate(lmk_key)` — a name that matched neither. Users and LLMs that switch between the two surfaces encounter different tool names for the same operation.
+**Suggested improvement:** In a repo with two MCP surfaces, adopt a naming convention at the start: either both use `get_epc_certificate` or both use `epc_certificate`. The MCP app already has a consistent prefix-free style (`epc_search`, `epc_certificate`, `epc_lookup`) — the plain server should match. Docstring cross-references must use the exact name of the tool on that surface.
+**Principle:** When a capability is implemented on multiple MCP surfaces, use the same tool name on each. Divergent names force LLMs (and developers) to maintain a mental mapping that doesn't exist anywhere in the code.
+**Status:** OPEN
+
+---
+
+### Observation 11
+**Date:** 2026-05-17
+**Session context:** Pre-push code review of 3 unpushed commits — false-positive bug report due to large diff misread
+**Skill:** code-review / systematic-debugging
+**Type:** Review methodology — verify findings in the actual file before reporting
+**Issue:** During a `/review` of a 34.5KB aggregated diff (3 commits, `git diff origin/main..HEAD`), I reported that `epc_search` in `property_app/tools.py` had "Call rightmove_search" in its workflow — a genuine bug. When I then read the actual file, line 308 had "Call rightmove_listing". The committed file was correct all along. The most likely cause: the diff contained two similar docstring blocks (`property_epc_search` in `app/mcp/server.py` and `epc_search` in `property_app/tools.py`) and I attributed content from the wrong section. Large aggregated diffs with repeated patterns across files are high-noise and easy to misread.
+**Suggested improvement:** After identifying a specific bug in a diff, read the actual file at the reported line before including it in the review output. A one-line `grep -n` check costs almost nothing and prevents false positives. For large diffs (>20KB), prefer reading specific sections of the files directly rather than relying on the aggregated diff text.
+**Principle:** A bug reported from a diff is a hypothesis. Verify it in the actual file before stating it as a finding.
+**Status:** OPEN
