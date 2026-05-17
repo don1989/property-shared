@@ -133,7 +133,7 @@ def _extract_sizings(data: Dict[str, Any]) -> tuple[Optional[float], Optional[fl
         if not isinstance(s, dict):
             continue
         unit = s.get("unit")
-        size = s.get("minimumSize") or s.get("maximumSize")
+        size = s.get("minimumSize") if s.get("minimumSize") is not None else s.get("maximumSize")
         if size is None:
             continue
         if unit == "sqm" and sqm is None:

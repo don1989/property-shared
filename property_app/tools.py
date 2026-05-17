@@ -305,7 +305,7 @@ async def epc_search(
       habitable_rooms, inspection_date, lmk_key.
 
     Workflow for Rightmove listings where the house number is not shown:
-      1. Call rightmove_search to obtain floor_area_sqm, property_type, and
+      1. Call rightmove_listing to obtain floor_area_sqm, property_type, and
          any floor-level signals in the description (e.g. "top floor", "ground floor").
       2. Call epc_search(postcode) to retrieve the full cert list.
       3. You MUST cross-reference each cert's floor_area against the listing's

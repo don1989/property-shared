@@ -229,7 +229,7 @@ async def property_epc_search(postcode: str) -> list[dict] | None:
       3. You MUST cross-reference each cert's floor_area against the listing's
          floor_area_sqm (accept within ±5 sqm) AND property_type must match.
          Also use floor_level and habitable_rooms where available.
-      4. If a single cert matches, call get_certificate(lmk_key) for the full detail.
+      4. If a single cert matches, call get_epc_certificate(lmk_key) for the full detail.
       5. If multiple certs match equally, present all candidates — do not guess.
          If floor_area is unavailable on the listing, filter by property_type only
          and return all candidates.
