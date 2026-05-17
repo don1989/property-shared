@@ -290,6 +290,89 @@ def test_search_rightmove_empty_results():
 
 
 # ---------------------------------------------------------------------------
+# epc_search / epc_certificate
+# ---------------------------------------------------------------------------
+
+
+def test_browse_epc_certs_empty():
+    """browse_epc_certs returns None when no certs exist at postcode."""
+    from property_app.tools import browse_epc_certs
+
+    with patch("property_core.EPCClient") as mock_cls:
+        mock_cls.return_value.search_all_by_postcode = AsyncMock(return_value=[])
+        result = asyncio.run(browse_epc_certs("ZZ99 9ZZ"))
+        assert result is None
+
+
+def test_browse_epc_certs_returns_slim_list():
+    """browse_epc_certs returns slim list with only the 9 expected fields."""
+    from property_app.tools import browse_epc_certs
+
+    def make_cert(address, rating, floor_area, lmk_key):
+        m = MagicMock()
+        m.model_dump.return_value = {
+            "address": address,
+            "rating": rating,
+            "score": 72,
+            "floor_area": floor_area,
+            "property_type": "Flat",
+            "floor_level": "2nd floor",
+            "habitable_rooms": 3,
+            "inspection_date": "2023-01-01",
+            "lmk_key": lmk_key,
+            "raw": {"extra": "noise"},
+        }
+        return m
+
+    certs = [
+        make_cert("FLAT 1, 10 TEST STREET", "C", 55.0, "abc123"),
+        make_cert("FLAT 2, 10 TEST STREET", "B", 60.0, "def456"),
+    ]
+
+    with patch("property_core.EPCClient") as mock_cls:
+        mock_cls.return_value.search_all_by_postcode = AsyncMock(return_value=certs)
+        result = asyncio.run(browse_epc_certs("SW1A 1AA"))
+
+    assert isinstance(result, list)
+    assert len(result) == 2
+    first = result[0]
+    assert first["lmk_key"] == "abc123"
+    assert first["floor_area"] == 55.0
+    assert "raw" not in first
+
+
+def test_fetch_epc_certificate_not_found():
+    """fetch_epc_certificate returns None when lmk_key not found."""
+    from property_app.tools import fetch_epc_certificate
+
+    with patch("property_core.EPCClient") as mock_cls:
+        mock_cls.return_value.get_certificate = AsyncMock(return_value=None)
+        result = asyncio.run(fetch_epc_certificate("nonexistent"))
+        assert result is None
+
+
+def test_fetch_epc_certificate_returns_full_cert():
+    """fetch_epc_certificate returns slimmed full cert dict."""
+    from property_app.tools import fetch_epc_certificate
+
+    mock_epc = MagicMock()
+    mock_epc.model_dump.return_value = {
+        "address": "FLAT 1, 10 TEST STREET",
+        "rating": "C",
+        "lmk_key": "abc123",
+        "raw": {"should": "be stripped"},
+    }
+
+    with patch("property_core.EPCClient") as mock_cls:
+        mock_cls.return_value.get_certificate = AsyncMock(return_value=mock_epc)
+        result = asyncio.run(fetch_epc_certificate("abc123"))
+
+    assert isinstance(result, dict)
+    assert result["lmk_key"] == "abc123"
+    assert "raw" not in result
+
+
+# ---------------------------------------------------------------------------
 # Import tests
 # ---------------------------------------------------------------------------
 
@@ -297,16 +380,23 @@ def test_search_rightmove_empty_results():
 def test_tools_importable():
     """All MCP tool functions are importable from property_app.tools."""
     from property_app.tools import (
+        browse_epc_certs,
         company_search,
+        epc_certificate,
         epc_lookup,
+        epc_search,
+        fetch_epc_certificate,
         planning_search,
         rightmove_search,
         stamp_duty,
     )
 
-    # Verify they exist
     assert stamp_duty is not None
     assert planning_search is not None
     assert company_search is not None
     assert epc_lookup is not None
+    assert epc_search is not None
+    assert epc_certificate is not None
+    assert browse_epc_certs is not None
+    assert fetch_epc_certificate is not None
     assert rightmove_search is not None

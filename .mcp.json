@@ -1,16 +1,16 @@
 {
   "mcpServers": {
-    "property-shared-local": {
+    "property-shared-http": {
       "type": "http",
-      "url": "http://localhost:8000/mcp"
+      "url": "https://property-shared.fly.dev/mcp"
     },
     "openaiDeveloperDocs": {
       "type": "http",
       "url": "https://developers.openai.com/mcp"
     },
-    "property-mcp": {
+    "property-mcp-app": {
       "type": "http",
-      "url": "https://uk-property-mcp.fly.dev/mcp"
+      "url": "https://propertydata.fly.dev/mcp"
     },
     "mcp-ui Docs": {
       "type": "http",

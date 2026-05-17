@@ -272,6 +272,87 @@ async def epc_lookup(
     return await lookup_epc(postcode, address=address)
 
 
+async def browse_epc_certs(postcode: str) -> list[dict] | None:
+    """Raw EPC cert browse — returns slim list. Used by the MCP tool and tests."""
+    from property_core import EPCClient
+
+    client = EPCClient()
+    certs = await client.search_all_by_postcode(postcode)
+    if not certs:
+        return None
+
+    keep = {"address", "rating", "score", "floor_area", "property_type",
+            "floor_level", "habitable_rooms", "inspection_date", "lmk_key"}
+
+    return _slim([
+        {k: v for k, v in c.model_dump(mode="json", exclude_none=True).items() if k in keep}
+        for c in certs
+    ])
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"epc"},
+    timeout=30.0,
+)
+async def epc_search(
+    postcode: Annotated[str, Field(description="UK postcode to browse EPC certificates for")],
+) -> list[dict] | None:
+    """Browse all EPC certificates at a postcode — use when you have no house number.
+
+    Returns a slim list of every certificate at the postcode. Each entry contains:
+      address, rating, score, floor_area (sqm), property_type, floor_level,
+      habitable_rooms, inspection_date, lmk_key.
+
+    Workflow for Rightmove listings where the house number is not shown:
+      1. Call rightmove_search to obtain floor_area_sqm, property_type, and
+         any floor-level signals in the description (e.g. "top floor", "ground floor").
+      2. Call epc_search(postcode) to retrieve the full cert list.
+      3. You MUST cross-reference each cert's floor_area against the listing's
+         floor_area_sqm (accept within ±5 sqm) AND property_type must match.
+         Also use floor_level and habitable_rooms where available.
+      4. If a single cert matches, call epc_certificate(lmk_key) for the full detail.
+      5. If multiple certs match equally, present all candidates — do not guess.
+         If floor_area is unavailable on the listing, filter by property_type only
+         and return all candidates.
+
+    Returns None if no certificates exist for the postcode.
+    """
+    return await browse_epc_certs(postcode)
+
+
+async def fetch_epc_certificate(lmk_key: str) -> dict | None:
+    """Raw EPC cert fetch by lmk_key — returns dict. Used by the MCP tool and tests."""
+    from property_core import EPCClient
+
+    client = EPCClient()
+    result = await client.get_certificate(lmk_key)
+    if result is None:
+        return None
+    return _slim(result.model_dump(mode="json", exclude_none=True))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"epc"},
+    timeout=30.0,
+)
+async def epc_certificate(
+    lmk_key: Annotated[str, Field(description="EPC certificate hash (lmk_key) from epc_search results")],
+) -> dict | None:
+    """Fetch a single EPC certificate by its lmk_key (certificate hash).
+
+    Use after epc_search has identified the correct cert — this is faster
+    than epc_lookup(postcode, address) as it makes a direct lookup with no
+    fuzzy matching or postcode re-fetch.
+
+    lmk_key is returned in every epc_search result.
+
+    Returns the full EPC certificate or None if not found.
+    """
+    return await fetch_epc_certificate(lmk_key)
+
+
 # ---------------------------------------------------------------------------
 # 5. Rightmove search
 # ---------------------------------------------------------------------------

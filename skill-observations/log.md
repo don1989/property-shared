@@ -34,7 +34,7 @@
 **Issue:** `match_score` in `address_matching.py` scores "CAVENDISH CRESCENT NORTH" at 36 against "Cavendish Crescent South" — above the 30-point threshold — because `extract_street` takes only the first two words after stripping a leading number, so both map to "cavendish crescent". Word-overlap scoring adds more points on shared words. The result: the matcher returns an EPC cert from the wrong street as a confident match. Additionally, `extract_number` naively matches the flat number in "FLAT 1, 5 HIGH STREET" rather than the building number, causing all flat-format EPC addresses to score ~9 when the target has no house number.
 **Suggested improvement:** `extract_street` should include directional/qualifier words (North, South, East, West, Upper, Lower) as part of the street token rather than truncating at 2 words. `extract_number` should skip "FLAT N," and "APARTMENT N," prefixes before extracting the building number. The 30-point threshold should be raised when no house number is present in the target (confidence is inherently lower).
 **Principle:** Address matching edge cases must be tested with a score matrix before shipping — the failure modes are not obvious from reading the code.
-**Status:** OPEN
+**Status:** CLOSED — fixed in commit 9db9425. extract_number strips flat/apartment prefixes, extract_street takes 3 words, match_epc_address raises threshold to 50 when target has no house number. Score matrix verified: wrong-street dropped from 36→6, flat cert with building number rose from 12→62.
 
 ---
 
