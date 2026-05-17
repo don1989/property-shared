@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.12.0 (2026-05-17)
+
+### Added
+- `property_epc_search(postcode)` — browse all EPC certificates at a postcode as a slim list (address, rating, floor\_area, property\_type, floor\_level, habitable\_rooms, inspection\_date, lmk\_key). Designed for Rightmove listings where the house number is not shown.
+- `epc_certificate(lmk_key)` — direct EPC certificate lookup by lmk\_key, faster than address-based lookup as it skips fuzzy matching. Available on both MCP servers (`property-shared.fly.dev/mcp` and `propertydata.fly.dev/mcp`).
+- `RightmoveListingDetail.floor_area_sqm` / `floor_area_sqft` — numeric floor area extracted from the Rightmove `sizings` array. Key discriminator for EPC cross-referencing without address matching.
+
+### Fixed
+- `address_matching.extract_number` — now strips `FLAT N,` / `APARTMENT N,` / `UNIT N,` prefixes before extracting the building number, preventing flat EPC certs from scoring near-zero against no-house-number targets.
+- `address_matching.extract_street` — now takes 3 words instead of 2, including directional qualifiers (North, South, East, West). Eliminates wrong-street false positives (e.g. "Cavendish Crescent North" vs "Cavendish Crescent South" previously both mapped to "cavendish crescent").
+- `address_matching.match_epc_address` — raises minimum match threshold from 30 → 50 when the target address has no house number, since word-overlap alone is insufficient to discriminate between properties on the same street.
+
 ## v1.11.0 (2026-05-12)
 
 ### Breaking Changes

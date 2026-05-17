@@ -18,12 +18,13 @@ Use it as a **Python library**, **CLI**, **HTTP API**, or **MCP server**.
 | **Yield Analysis** | Gross yield from PPD sales + Rightmove rentals combined |
 | **Stamp Duty** | SDLT calculation with April 2025 bands, BTL surcharge, FTB relief |
 | **Block Analyzer** | Groups flat sales by building to spot investor exits |
-| **Planning** | Local council planning portal lookup (99 verified councils) |
+| **Planning** | Local council planning portal lookup (99 verified councils, stdio only) |
 | **Companies House** | Company search and lookup by name or number |
 
-## Skills
+## Skills & Plugins 
 
-Want structured property reports instead of raw data? Claude skills that chain these tools into investment summaries are available at [bouch.dev/products](https://bouch.dev/products).
+Property and Legal packs coming soon. Please get in contact if you have working experiance or expert knowledge in UK property investing, UK Estate Agents, Property and Conveyencing and would like to help shape this. paul@bouch.dev  
+
 
 ## Use as MCP Server
 
@@ -41,10 +42,6 @@ No install required — paste the URL into your MCP client config and go.
   }
 }
 ```
-
-**Claude Desktop, ChatGPT and clients with visual dashboards** — use `https://propertydata.fly.dev/mcp` instead. This server adds interactive UI dashboards (wip). Not supported in all MCP clients.
-
-Both servers expose the same core tools. `property-shared.fly.dev` is the plain tools-only server that works everywhere.
 
 ## Install
 
@@ -167,26 +164,6 @@ uv run --extra dev pytest -v
 
 # Run live integration tests (real network calls)
 RUN_LIVE_TESTS=1 uv run --extra dev pytest -v
-```
-
-## Architecture
-
-Four-layer separation — core stays framework-agnostic:
-
-```
-property_core/     Pure Python library (all business logic)
-app/               FastAPI wrapper (thin HTTP layer)
-property_cli/      Typer CLI (thin CLI layer)
-property_app/      MCP App with Prefab UI dashboards (propertydata.fly.dev/mcp)
-```
-
-All four consumers import directly from `property_core`. No adapter layers.
-
-## Deploy (Fly.io)
-
-```bash
-fly secrets set EPC_API_EMAIL=... EPC_API_KEY=...
-fly deploy
 ```
 
 Deployed at `https://property-shared.fly.dev` with API docs at `/docs` and MCP endpoint at `/mcp`.
