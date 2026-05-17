@@ -119,6 +119,30 @@ def _extract_key_features(data: Dict[str, Any]) -> List[str]:
     return features
 
 
+def _extract_sizings(data: Dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
+    """Extract numeric floor area from the sizings list.
+
+    Returns (sqm, sqft) — either may be None if not present.
+    """
+    sizings = data.get("sizings")
+    if not isinstance(sizings, list):
+        return None, None
+    sqm: Optional[float] = None
+    sqft: Optional[float] = None
+    for s in sizings:
+        if not isinstance(s, dict):
+            continue
+        unit = s.get("unit")
+        size = s.get("minimumSize") or s.get("maximumSize")
+        if size is None:
+            continue
+        if unit == "sqm" and sqm is None:
+            sqm = float(size)
+        elif unit == "sqft" and sqft is None:
+            sqft = float(size)
+    return sqm, sqft
+
+
 class RightmoveListing(BaseModel):
     """Normalized Rightmove listing row."""
 
@@ -221,6 +245,8 @@ class RightmoveListingDetail(BaseModel):
     # Size
     display_size: Optional[str] = None
     price_per_sqft: Optional[str] = None
+    floor_area_sqm: Optional[float] = None
+    floor_area_sqft: Optional[float] = None
     # Key features
     key_features: List[str] = Field(default_factory=list)
     # Listing history
@@ -297,6 +323,8 @@ class RightmoveListingDetail(BaseModel):
             for s in stations_raw if isinstance(s, dict)
         ]
 
+        floor_area_sqm, floor_area_sqft = _extract_sizings(data)
+
         return cls(
             id=data.get("id"),
             url=url,
@@ -329,6 +357,8 @@ class RightmoveListingDetail(BaseModel):
             council_tax_band=living_costs.get("councilTaxBand"),
             display_size=_extract_display_size(data),
             price_per_sqft=price_info.get("pricePerSqFt"),
+            floor_area_sqm=floor_area_sqm,
+            floor_area_sqft=floor_area_sqft,
             key_features=_extract_key_features(data),
             listing_update_reason=listing_history.get("listingUpdateReason"),
             listing_status=tags[0] if tags else None,
