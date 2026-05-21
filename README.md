@@ -6,9 +6,9 @@
 
 UK property data in one package. Pulls Land Registry sales, EPC certificates, Rightmove listings, Zoopla and OnTheMarket listings, rental yields, stamp duty calculations, planning portal links, and Companies House records.
 
-Use it as a **Python library**, **CLI**, or **HTTP API**.
+Use it as a **Python library**, **CLI**, **HTTP API**, or **MCP server**.
 
-> **MCP server:** [`uk-property-mcp`](https://github.com/paulieb89/uk-property-mcp) on PyPI for local install (`pip install uk-property-mcp`), or self-host the FastMCP server in this repo via Coolify (see `docs/coolify-deploy.md`).
+> Self-host the FastMCP server in this repo via Coolify (see `docs/coolify-deploy.md`).
 
 ## What You Get
 
@@ -22,12 +22,30 @@ Use it as a **Python library**, **CLI**, or **HTTP API**.
 | **Yield Analysis** | Gross yield from PPD sales + Rightmove rentals combined |
 | **Stamp Duty** | SDLT calculation with April 2025 bands, BTL surcharge, FTB relief |
 | **Block Analyzer** | Groups flat sales by building to spot investor exits |
-| **Planning** | Local council planning portal lookup (99 verified councils) |
+| **Planning** | Local council planning portal lookup (99 verified councils, stdio only) |
 | **Companies House** | Company search and lookup by name or number |
 
-## Skills
+## Skills & Plugins 
 
-Want structured property reports instead of raw data? Claude skills that chain these tools into investment summaries are available at [bouch.dev/products](https://bouch.dev/products).
+Property and Legal packs coming soon. Please get in contact if you have working experiance or expert knowledge in UK property investing, UK Estate Agents, Property and Conveyencing and would like to help shape this. paul@bouch.dev  
+
+
+## Use as MCP Server
+
+No install required — paste the URL into your MCP client config and go.
+
+**Claude Code, Cursor, any MCP client:**
+
+```json
+{
+  "mcpServers": {
+    "property-shared": {
+      "type": "http",
+      "url": "https://property-shared.fly.dev/mcp"
+    }
+  }
+}
+```
 
 ## Install
 

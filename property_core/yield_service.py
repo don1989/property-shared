@@ -26,6 +26,7 @@ async def calculate_yield(
     property_type: Optional[str] = None,
     radius: float = 0.5,
     rightmove_delay: Optional[float] = None,
+    auto_escalate: bool = True,
 ) -> YieldAnalysis:
     """Calculate gross rental yield for a postcode.
 
@@ -42,6 +43,8 @@ async def calculate_yield(
         property_type: Filter comps by type: F=flat, D=detached, S=semi, T=terraced (default all).
         radius: Rightmove rental search radius in miles.
         rightmove_delay: Per-request delay in seconds (default from env or 0.6).
+        auto_escalate: Widen PPD search area on thin markets (postcode→sector→
+            district). Default True. Set False for strict-locality only.
 
     Returns:
         YieldAnalysis with combined sale/rental data and yield calculation.
@@ -58,6 +61,7 @@ async def calculate_yield(
         months=months,
         search_level=search_level,
         property_type=property_type,
+        auto_escalate=auto_escalate,
     )
 
     if not comps.median or comps.thin_market:
@@ -68,33 +72,41 @@ async def calculate_yield(
             thin_market=comps.thin_market,
         )
 
-    # Fetch rental listings (sync → thread)
+    # Fetch rental listings (sync → thread). On empty result, escalate the
+    # radius up to 2.0mi before giving up — rural postcodes often have no
+    # rentals at the default 0.5mi but plenty within a wider catchment.
     location_api = RightmoveLocationAPI(rate_limit_delay=delay)
-    try:
-        url = await asyncio.to_thread(
-            location_api.build_search_url,
-            postcode,
-            property_type="rent",
-            building_type=property_type,
-            radius=radius,
-        )
-        listings = await asyncio.to_thread(
-            fetch_listings,
-            url,
-            max_pages=1,
-            rate_limit_seconds=delay,
-        )
-    except Exception:
-        return YieldAnalysis(
-            postcode=postcode,
-            median_sale_price=comps.median,
-            sale_count=comps.count,
-            thin_market=comps.thin_market,
-        )
+    radii_to_try = [radius] + [r for r in (1.0, 1.5, 2.0) if r > radius]
 
-    # Keep all listings with valid prices - LET_AGREED are confirmed
-    # deals and arguably better data than aspirational asking rents
-    active = [l for l in listings if l.price and l.price > 0]
+    active: list = []
+    final_radius = radius
+    for try_radius in radii_to_try:
+        try:
+            url = await asyncio.to_thread(
+                location_api.build_search_url,
+                postcode,
+                property_type="rent",
+                building_type=property_type,
+                radius=try_radius,
+            )
+            listings = await asyncio.to_thread(
+                fetch_listings,
+                url,
+                max_pages=1,
+                rate_limit_seconds=delay,
+            )
+        except Exception:
+            return YieldAnalysis(
+                postcode=postcode,
+                median_sale_price=comps.median,
+                sale_count=comps.count,
+                thin_market=comps.thin_market,
+            )
+
+        active = [l for l in listings if l.price and l.price > 0]
+        final_radius = try_radius
+        if active:
+            break
 
     if not active:
         return YieldAnalysis(
@@ -118,6 +130,7 @@ async def calculate_yield(
         sale_count=comps.count,
         median_monthly_rent=median_rent,
         rental_count=len(active),
+        rental_search_radius_miles=final_radius,
         gross_yield_pct=gross_yield,
         thin_market=comps.thin_market,
     )

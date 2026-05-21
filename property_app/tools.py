@@ -31,7 +31,7 @@ def _slim(obj: Any) -> Any:
 
 def calc_stamp_duty(
     price: int,
-    additional_property: bool = True,
+    additional_property: bool = False,
     first_time_buyer: bool = False,
     non_resident: bool = False,
 ) -> dict:
@@ -56,7 +56,7 @@ def stamp_duty(
     price: Annotated[int, Field(description="Purchase price in GBP")],
     additional_property: Annotated[
         bool, Field(description="Buying an additional property (+5% surcharge)")
-    ] = True,
+    ] = False,
     first_time_buyer: Annotated[
         bool, Field(description="First-time buyer relief (up to 300k nil rate)")
     ] = False,
@@ -272,6 +272,87 @@ async def epc_lookup(
     return await lookup_epc(postcode, address=address)
 
 
+async def browse_epc_certs(postcode: str) -> list[dict] | None:
+    """Raw EPC cert browse — returns slim list. Used by the MCP tool and tests."""
+    from property_core import EPCClient
+
+    client = EPCClient()
+    certs = await client.search_all_by_postcode(postcode)
+    if not certs:
+        return None
+
+    keep = {"address", "rating", "score", "floor_area", "property_type",
+            "floor_level", "habitable_rooms", "inspection_date", "lmk_key"}
+
+    return _slim([
+        {k: v for k, v in c.model_dump(mode="json", exclude_none=True).items() if k in keep}
+        for c in certs
+    ])
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"epc"},
+    timeout=30.0,
+)
+async def epc_search(
+    postcode: Annotated[str, Field(description="UK postcode to browse EPC certificates for")],
+) -> list[dict] | None:
+    """Browse all EPC certificates at a postcode — use when you have no house number.
+
+    Returns a slim list of every certificate at the postcode. Each entry contains:
+      address, rating, score, floor_area (sqm), property_type, floor_level,
+      habitable_rooms, inspection_date, lmk_key.
+
+    Workflow for Rightmove listings where the house number is not shown:
+      1. Call rightmove_listing to obtain floor_area_sqm, property_type, and
+         any floor-level signals in the description (e.g. "top floor", "ground floor").
+      2. Call epc_search(postcode) to retrieve the full cert list.
+      3. You MUST cross-reference each cert's floor_area against the listing's
+         floor_area_sqm (accept within ±5 sqm) AND property_type must match.
+         Also use floor_level and habitable_rooms where available.
+      4. If a single cert matches, call epc_certificate(lmk_key) for the full detail.
+      5. If multiple certs match equally, present all candidates — do not guess.
+         If floor_area is unavailable on the listing, filter by property_type only
+         and return all candidates.
+
+    Returns None if no certificates exist for the postcode.
+    """
+    return await browse_epc_certs(postcode)
+
+
+async def fetch_epc_certificate(lmk_key: str) -> dict | None:
+    """Raw EPC cert fetch by lmk_key — returns dict. Used by the MCP tool and tests."""
+    from property_core import EPCClient
+
+    client = EPCClient()
+    result = await client.get_certificate(lmk_key)
+    if result is None:
+        return None
+    return _slim(result.model_dump(mode="json", exclude_none=True))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"epc"},
+    timeout=30.0,
+)
+async def epc_certificate(
+    lmk_key: Annotated[str, Field(description="EPC certificate hash (lmk_key) from epc_search results")],
+) -> dict | None:
+    """Fetch a single EPC certificate by its lmk_key (certificate hash).
+
+    Use after epc_search has identified the correct cert — this is faster
+    than epc_lookup(postcode, address) as it makes a direct lookup with no
+    fuzzy matching or postcode re-fetch.
+
+    lmk_key is returned in every epc_search result.
+
+    Returns the full EPC certificate or None if not found.
+    """
+    return await fetch_epc_certificate(lmk_key)
+
+
 # ---------------------------------------------------------------------------
 # 5. Rightmove search
 # ---------------------------------------------------------------------------
@@ -349,6 +430,7 @@ def rightmove_search(
         radius=radius,
         building_type=building_type,
     )
+
 
 
 # ---------------------------------------------------------------------------
@@ -587,210 +669,107 @@ def onthemarket_listing(
 
 
 # ---------------------------------------------------------------------------
-# Component Test (temporary — maps what claude.ai renderer supports)
+# 8. Property blocks — find buildings with multiple flat sales
 # ---------------------------------------------------------------------------
 
 
-def _public_url() -> str:
-    """Return the public origin of this MCP service (no trailing slash).
+def analyse_blocks(
+    postcode: str,
+    search_level: str = "sector",
+    months: int = 24,
+    limit: int = 50,
+    min_transactions: int = 2,
+) -> dict:
+    """Raw block analysis — returns dict. Used by the MCP tool and tests."""
+    from property_core import analyze_blocks
 
-    Read from the ``MCP_PUBLIC_URL`` env var, set per-deployment in
-    Coolify (or any other host). Falls back to localhost so dev runs
-    don't require any env config.
+    result = analyze_blocks(
+        postcode=postcode,
+        search_level=search_level,
+        months=months,
+        limit=limit,
+        min_transactions=min_transactions,
+    )
+    return _slim(result.model_dump(mode="json", exclude_none=True))
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True},
+    tags={"ppd", "blocks"},
+    timeout=60.0,
+)
+def property_blocks(
+    postcode: Annotated[str, Field(description="UK postcode (e.g. 'B1 1AA')")],
+    search_level: Annotated[
+        str, Field(description="postcode, sector, or district")
+    ] = "sector",
+    months: Annotated[int, Field(description="Sale lookback months", ge=1, le=120)] = 24,
+    limit: Annotated[int, Field(description="Target number of blocks to return", ge=1, le=200)] = 50,
+    min_transactions: Annotated[
+        int, Field(description="Minimum sales per building to qualify as a block", ge=2)
+    ] = 2,
+) -> dict:
+    """Identify buildings with multiple flat sales — block-buy opportunities.
+
+    Groups Land Registry transactions by building (PAON/street) and returns
+    blocks where at least min_transactions units sold in the lookback window.
+    Useful for spotting investor exits, new-build releases, or portfolio
+    bulk transfers.
     """
-    import os
-    raw = (os.environ.get("MCP_PUBLIC_URL") or "http://localhost:8080").rstrip("/")
-    return raw
-
-
-def _component_test_config():
-    from fastmcp.apps import PrefabAppConfig, ResourceCSP
-    return PrefabAppConfig(csp=ResourceCSP(resource_domains=[_public_url()]))
-
-
-@mcp.tool(
-    app=_component_test_config(),
-    annotations={"readOnlyHint": True},
-    tags={"test"},
-)
-def component_test():
-    """Render a sampler of Prefab components to test claude.ai renderer support."""
-    from fastmcp.tools import ToolResult
-    from prefab_ui.components import (
-        Badge,
-        Card,
-        CardContent,
-        Column,
-        Dot,
-        ForEach,
-        Grid,
-        Heading,
-        Image,
-        Metric,
-        Muted,
-        Progress,
-        Ring,
-        Row,
-        Separator,
-        Tabs,
-        Tab,
-        Text,
-    )
-    from prefab_ui.components.charts import BarChart, ChartSeries
-
-    sample_chart_data = [
-        {"label": "Q1", "value": 42},
-        {"label": "Q2", "value": 58},
-        {"label": "Q3", "value": 35},
-        {"label": "Q4", "value": 71},
-    ]
-
-    view = Column(
-        children=[
-            Heading("Component Test", level=2),
-            Muted("Each section tests a component. If a section is missing, that component crashed the renderer."),
-            Separator(),
-
-            # Section 1: Badge
-            Heading("1. Badge", level=3),
-            Row(children=[
-                Badge(label="Flat", variant="default"),
-                Badge(label="Strong", variant="success"),
-                Badge(label="Weak", variant="destructive"),
-                Badge(label="Pending", variant="outline"),
-            ], gap=2),
-            Separator(),
-
-            # Section 2: Progress + Ring + Dot
-            Heading("2. Progress / Ring / Dot", level=3),
-            Progress(value=65),
-            Row(children=[
-                Ring(value=75, size="lg"),
-                Dot(variant="success"),
-                Dot(variant="destructive"),
-                Dot(variant="warning"),
-            ], gap=4),
-            Separator(),
-
-            # Section 3: BarChart
-            Heading("3. BarChart", level=3),
-            BarChart(
-                data=sample_chart_data,
-                series=[ChartSeries(dataKey="value", label="Revenue")],
-                xAxis="label",
-            ),
-            Separator(),
-
-            # Section 4: Tabs
-            Heading("4. Tabs", level=3),
-            Tabs(children=[
-                Tab(title="Overview", children=[
-                    Text("This is the overview tab content"),
-                ]),
-                Tab(title="Details", children=[
-                    Text("This is the details tab content"),
-                ]),
-            ]),
-            Separator(),
-
-            # Section 5: ForEach
-            Heading("5. ForEach", level=3),
-            ForEach(
-                key="test_items",
-                children=[
-                    Row(children=[
-                        Text("{{ $item.name }}"),
-                        Badge(label="{{ $item.price }}"),
-                    ], gap=2),
-                ],
-            ),
-            Separator(),
-
-            # Section 6: Metric with formatted values
-            Heading("6. Metric Grid", level=3),
-            Grid(columns=3, children=[
-                Metric(label="Count", value="50"),
-                Metric(label="Median", value="£150,000"),
-                Metric(label="Yield", value="6.9%"),
-            ]),
-            Separator(),
-
-            # Section 7: Card layout
-            Heading("7. Cards", level=3),
-            Grid(columns=2, children=[
-                Card(children=[CardContent(children=[
-                    Heading("Sales", level=4),
-                    Metric(label="Median", value="£150,000"),
-                    Metric(label="Count", value="50"),
-                ])]),
-                Card(children=[CardContent(children=[
-                    Heading("Rentals", level=4),
-                    Metric(label="Median/mo", value="£866"),
-                    Metric(label="Count", value="25"),
-                ])]),
-            ]),
-            Separator(),
-
-            # Section 8: Image (data URI — no CSP needed)
-            Heading("8. Image (data URI)", level=3),
-            Image(
-                src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAACXBIWXMAAAsTAAALEwEAmpwYAAABIklEQVR4nO3SQQ0AIAwAQfj3jAdWuECSzbkB+tme2Z0f2fkdwH8MiRkSMyRmSMyQmCExQ2KGxAyJGRIzJGZIzJCYITFDYobEDIkZEjMkZkjMkJghMUNihsQMiRkSMyRmSMyQmCExQ2KGxAyJGRIzJGZIzJCYITFDYobEDIkZEjMkZkjMkJghMUNihsQMiRkSMyRmSMyQmCExQ2KGxAyJGRIzJGZIzJCYITFDYobEDIkZEjMkZkjMkJghMUNihsQMiRkSMyRmSMyQmCExQ2KGxAyJGRIzJGZIzJCYITFDYobEDIkZEjMkZkjMkJghMUNihsQMiRkSMyRmSMyQmCExQ2KGxAyJGRIzJGZIzJCYITFDYobEDIn9AC9RBGTuOhELAAAAAElFTkSuQmCC",
-                alt="100x100 test square",
-                height="100px",
-            ),
-
-            Separator(),
-
-            # Section 9: Image (proxied external URL)
-            Heading("9. Image (proxied URL)", level=3),
-            Image(
-                src=(
-                    f"{_public_url()}/img?url=https%3A%2F%2Fmedia.rightmove.co.uk"
-                    "%3A443%2Fdir%2Fcrop%2F10%3A9-16%3A9%2Fproperty-photo"
-                    "%2Fb17d74096%2F174125315%2Fb17d74096dbcccb8c49b510d19b48625_max_476x317.jpeg"
-                ),
-                alt="Proxied Rightmove image",
-                height="200px",
-            ),
-        ],
-        gap=4,
+    return analyse_blocks(
+        postcode=postcode,
+        search_level=search_level,
+        months=months,
+        limit=limit,
+        min_transactions=min_transactions,
     )
 
-    from prefab_ui.app import PrefabApp
 
-    app_view = PrefabApp(
-        state={
-            "test_items": [
-                {"name": "Item A", "price": 100},
-                {"name": "Item B", "price": 200},
-                {"name": "Item C", "price": 300},
-            ],
-        },
-        view=view,
-    )
+# ---------------------------------------------------------------------------
+# 9. PPD transactions — raw Land Registry transactions for a postcode
+# ---------------------------------------------------------------------------
 
-    return ToolResult(
-        content="Component test: Badge, Progress, Ring, Dot, BarChart, Tabs, ForEach, Metric, Card, Image",
-        structured_content=app_view,
+
+def search_ppd_transactions(
+    postcode: str,
+    limit: int = 10,
+    property_type: str | None = None,
+) -> dict:
+    """Raw PPD transaction search — returns dict. Used by the MCP tool and tests."""
+    from property_core import PPDService
+
+    result = PPDService().search_transactions(
+        postcode=postcode,
+        postcode_prefix=None,
+        limit=limit,
+        property_type=property_type,
     )
+    return {
+        **{k: v for k, v in result.items() if k != "results"},
+        "results": [_slim(t.model_dump(mode="json", exclude_none=True)) for t in result["results"]],
+    }
 
 
 @mcp.tool(
     annotations={"readOnlyHint": True},
-    tags={"test"},
+    tags={"ppd"},
 )
-def image_test():
-    """Test returning an image as a FastMCP ImageContent block."""
-    import httpx
-    from fastmcp.utilities.types import Image as McpImage
+def ppd_transactions(
+    postcode: Annotated[str, Field(description="UK postcode")],
+    limit: Annotated[int, Field(description="Max transactions to return", ge=1, le=200)] = 10,
+    property_type: Annotated[
+        str | None,
+        Field(description="Filter by type: F=flat, D=detached, S=semi, T=terraced, O=other. Default None = all"),
+    ] = None,
+) -> dict:
+    """Raw Land Registry Price Paid transactions for a postcode.
 
-    resp = httpx.get(
-        "https://media.rightmove.co.uk:443/dir/crop/10:9-16:9/"
-        "property-photo/b17d74096/174125315/"
-        "b17d74096dbcccb8c49b510d19b48625_max_476x317.jpeg",
-        timeout=10.0,
+    Returns every recorded transaction at the postcode, unfiltered (includes
+    category-B bulk transfers and commercial sales). For clean residential
+    comparable sales, use property_comps instead.
+    """
+    return search_ppd_transactions(
+        postcode=postcode,
+        limit=limit,
+        property_type=property_type,
     )
-    return [
-        "Here is a Rightmove property photo:",
-        McpImage(data=resp.content, format="jpeg"),
-    ]

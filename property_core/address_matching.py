@@ -49,16 +49,20 @@ def normalize_address(address: str) -> str:
 
 
 def extract_number(address: str) -> str | None:
-    """Extract house number from address."""
-    match = re.match(r"^(\d+[a-zA-Z]?)\b", address.strip())
+    """Extract building number from address, skipping flat/apartment prefixes."""
+    addr = address.strip()
+    addr = re.sub(r"^(flat|apartment|unit)\s+\S+[,\s]+", "", addr, flags=re.IGNORECASE)
+    match = re.match(r"^(\d+[a-zA-Z]?)\b", addr)
     return match.group(1).lower() if match else None
 
 
 def extract_street(address: str) -> str | None:
-    """Extract street name from address."""
+    """Extract street name from address, including directional qualifier."""
     addr = re.sub(r"^\d+[a-zA-Z]?\s*", "", address.strip())
     addr = normalize_address(addr)
     parts = addr.split()
+    if len(parts) >= 3:
+        return " ".join(parts[:3])
     if len(parts) >= 2:
         return " ".join(parts[:2])
     return parts[0] if parts else None
@@ -109,6 +113,12 @@ def match_epc_address(
     Returns:
         Tuple of (EPCData, match_score) or None if no match meets threshold.
     """
+    # Raise threshold when target has no house number — word overlap alone
+    # is not sufficient to discriminate between properties on the same street.
+    effective_min_score = min_score
+    if extract_number(address) is None:
+        effective_min_score = max(min_score, 50)
+
     best_cert = None
     best_score = -1
     for cert in certificates:
@@ -117,6 +127,6 @@ def match_epc_address(
         if score > best_score:
             best_score = score
             best_cert = cert
-    if best_cert and best_score >= min_score:
+    if best_cert and best_score >= effective_min_score:
         return (best_cert, best_score)
     return None

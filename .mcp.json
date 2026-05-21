@@ -1,17 +1,20 @@
 {
   "mcpServers": {
-    "property": {
-      "command": "uvx",
-      "args": ["--from", "uk-property-mcp", "property-mcp"],
-      "env": {"MCP_TRANSPORT": "stdio"}
+    "property-shared-http": {
+      "type": "http",
+      "url": "https://property-shared.fly.dev/mcp"
     },
     "openaiDeveloperDocs": {
       "type": "http",
       "url": "https://developers.openai.com/mcp"
     },
-    "property-shared": {
+    "property-mcp-app": {
       "type": "http",
-      "url": "https://property-shared.fly.dev/mcp"
+      "url": "https://propertydata.fly.dev/mcp"
+    },
+    "mcp-ui Docs": {
+      "type": "http",
+      "url": "https://gitmcp.io/idosal/mcp-ui"
     }
   }
 }

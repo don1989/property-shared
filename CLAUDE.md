@@ -59,6 +59,10 @@ using a different Dockerfile:
 | `property-shared` | `Dockerfile` | 8080 | `/v1/health` | FastAPI REST API — core data layer |
 | `propertydata` | `Dockerfile.app` | 8080 | `/health` | FastMCP MCP server — tools + Prefab dashboards |
 
+`property-shared` exposes both the REST API (`/v1/`) and a plain MCP
+server (`/mcp`) — works in any MCP client. `propertydata` is the MCP
+app with Prefab UI dashboards — claude.ai only.
+
 Auto-deploy is via Coolify webhook on push to `main` (no GitHub Actions
 deploy job). The MCP service requires `MCP_TRANSPORT=http` env var or
 the container won't open a TCP listener — see `docs/coolify-deploy.md`
@@ -103,6 +107,7 @@ property_core/              # Pure Python library (no FastAPI, no DB assumptions
 
 app/                        # FastAPI service (thin HTTP wrapper)
 ├── api/v1/                 # Versioned routers (import directly from property_core)
+├── mcp/server.py           # Plain FastMCP server — tools only, no Prefab UI (property-shared.fly.dev/mcp)
 ├── schemas/                # API envelope models (convenience re-exports from core)
 ├── core/config.py          # Settings via pydantic-settings (reads .env)
 └── web/                    # Demo UI at /demo
@@ -171,7 +176,13 @@ from property_core import (
 from property_core.planning_scraper import scrape_planning_application, search_planning_by_postcode
 ```
 
-## MCP Server
+## MCP Servers
 
-The MCP server (`mcp_server/`) wraps property_core for AI hosts (ChatGPT, Claude). See `mcp_server/README.md` for details.
-Path-specific rules load automatically when editing MCP server files.
+Two MCP servers, both in this repo:
+
+| Server | File | URL | Clients |
+|--------|------|-----|---------|
+| Plain tools | `app/mcp/server.py` | `property-shared.fly.dev/mcp` | Any MCP client |
+| MCP app + dashboards | `property_app/server.py` | `propertydata.fly.dev/mcp` | claude.ai only |
+
+Local dev: `.mcp.json` includes `property-shared-local` pointing to `http://localhost:8000/mcp` (the plain server, running via `property-api`).

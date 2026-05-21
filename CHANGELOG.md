@@ -1,5 +1,84 @@
 # Changelog
 
+## v1.13.0 (2026-05-21)
+
+Merge from upstream `paulieb89/property-shared` — pulls in the MCP
+primitive refactor, EPC browse tooling, response-shape quality fixes,
+and several core service bug fixes. All Zoopla / OnTheMarket / station
+search work added since the fork is preserved and extended with the
+same response-shape patterns.
+
+### Added — MCP Prompts (workflow primitives, not tools)
+- `full_property_analysis` — comprehensive single-property analysis.
+  Replaces the removed `property_report` / `get_property_data`
+  composition tools by instructing the LLM to call the underlying
+  primitives explicitly so every input is visible in the conversation.
+- `area_comparison` — multi-postcode investment comparison workflow.
+- `investment_analysis` — single-property buy-to-let evaluation.
+
+### Added — MCP Resources (queryable reference data)
+- `councils://list` — full 99-council planning portal registry.
+- `council://{code}` — single-council profile lookup.
+- `sdlt-bands://current` — April 2025 SDLT schedule with surcharges.
+- `epc-ratings://reference` — A–G band definitions + 2025 rental floor.
+
+### Added — Tools
+- `property_epc_search(postcode)` — browse EPC certs at a postcode as
+  a slim list. Designed for Rightmove listings that omit the house
+  number.
+- `epc_certificate(lmk_key)` — direct cert lookup by lmk_key,
+  bypasses fuzzy address matching.
+- `RightmoveListingDetail.floor_area_sqm` / `floor_area_sqft` —
+  numeric floor area extracted from the `sizings` array for
+  cross-referencing against EPC.
+- Multimodal image support on `rightmove_listing(include_images=True)`.
+
+### Changed — MCP response quality
+- New `_slim()` helper strips `raw` / `images` / `floorplans` /
+  `epc_match` recursively. Combined with `exclude_none=True`, cuts
+  PPD comps token cost ~40% (232 → 140 tokens per transaction).
+- Pattern applied across MCP tools including Zoopla, OnTheMarket,
+  PPD, blocks, yield, rental, report.
+- Full docstring on `property_yield` (37 → 877 chars) so the LLM
+  knows what every param does and what shape comes back.
+- `auto_escalate` exposed on `/v1/analysis/yield` and
+  `/v1/analysis/rental` REST endpoints (was core-only).
+- `propertydata` MCP App reaches parity with plain MCP —
+  `property_blocks`, `ppd_transactions` now available there too.
+- Renamed `get_epc_certificate` → `epc_certificate` on plain MCP
+  for cross-surface naming consistency.
+
+### Removed (breaking for MCP tool consumers only)
+- `property_report` tool — use the `full_property_analysis` prompt.
+- `get_property_data` tool — same.
+- `component_test`, `image_test` dev utilities from `propertydata`.
+
+### Fixed (core service bugs)
+- `address_matching.extract_number` — strips `FLAT N,` /
+  `APARTMENT N,` / `UNIT N,` prefixes before number extraction so
+  flat certs stop scoring near-zero against no-house-number targets.
+- `address_matching.extract_street` — takes 3 words instead of 2 so
+  "Cavendish Crescent North" no longer collides with "South".
+- `address_matching.match_epc_address` — raises minimum threshold
+  30 → 50 when target has no house number.
+- `calculate_yield` — rental radius now escalates 0.5mi → 1mi →
+  1.5mi → 2mi when no listings found; new
+  `rental_search_radius_miles` field on `YieldAnalysis` surfaces
+  which radius produced the data.
+- `PPDService.comps()` now defaults to residential-only
+  (`transaction_category="A"`, `property_type` restricted to F+D+S+T)
+  for parity with the production MCP defaults. New `"ALL"` sentinel
+  on `property_type` for the unfiltered firehose. `filter_outliers`
+  param added (default `False`).
+- REST `/v1/ppd/comps` now defaults `auto_escalate=true` for parity
+  with both MCP servers.
+
+### Preserved
+All Zoopla / OnTheMarket scrapers, station search anchors, OTM
+travel-duration filter, OnTheMarketLocationNotFound exception,
+Coolify deploy guide, and the `ZOOPLA_ENABLED` / `ZOOPLA_PROXY_URL`
+env-gating from v1.11.x are unchanged.
+
 ## v1.11.1 (2026-05-10)
 
 ### Operational
@@ -97,6 +176,48 @@ all four impersonation profiles get a 403, hence the env-gating.
 - **Discovery report** committed at `docs/zoopla-onthemarket-discovery.md`
   documenting verbatim field provenance, blocking constraints, and
   selector strategy.
+## v1.12.0 (2026-05-17, upstream)
+
+### Added
+- `property_epc_search(postcode)` — browse all EPC certificates at a postcode as a slim list (address, rating, floor\_area, property\_type, floor\_level, habitable\_rooms, inspection\_date, lmk\_key). Designed for Rightmove listings where the house number is not shown.
+- `epc_certificate(lmk_key)` — direct EPC certificate lookup by lmk\_key, faster than address-based lookup as it skips fuzzy matching. Available on both MCP servers (`property-shared.fly.dev/mcp` and `propertydata.fly.dev/mcp`).
+- `RightmoveListingDetail.floor_area_sqm` / `floor_area_sqft` — numeric floor area extracted from the Rightmove `sizings` array. Key discriminator for EPC cross-referencing without address matching.
+
+### Fixed
+- `address_matching.extract_number` — now strips `FLAT N,` / `APARTMENT N,` / `UNIT N,` prefixes before extracting the building number, preventing flat EPC certs from scoring near-zero against no-house-number targets.
+- `address_matching.extract_street` — now takes 3 words instead of 2, including directional qualifiers (North, South, East, West). Eliminates wrong-street false positives (e.g. "Cavendish Crescent North" vs "Cavendish Crescent South" previously both mapped to "cavendish crescent").
+- `address_matching.match_epc_address` — raises minimum match threshold from 30 → 50 when the target address has no house number, since word-overlap alone is insufficient to discriminate between properties on the same street.
+
+## v1.11.0 (2026-05-12, upstream)
+
+### Breaking Changes
+- Removed `property_report` MCP tool from `property-shared.fly.dev/mcp` and from `propertydata.fly.dev/mcp`. Also removed `get_property_data` from `propertydata.fly.dev/mcp`. Both were multi-source composition tools that hid which input produced which output and were prone to data-quality bugs (e.g. the v1.10.x yield calc was silently dividing current rent by a historical sale price).
+- Replaced by a `full_property_analysis` MCP **prompt** on both servers. The prompt instructs the LLM to call the underlying primitive tools (`property_comps`/`search_comps`, `property_yield`/`get_yield`, `property_epc`/`epc_lookup`, `rightmove_search`) explicitly and synthesise. Every input is now visible in the LLM's working text.
+- REST `POST /v1/property/report` and CLI `property-cli report generate` are unchanged — they call `PropertyReportService` directly without going through MCP.
+- Downstream consumers (`uk-property-mcp`, `property-descriptions-mcp`): if they exposed `property_report` as a tool, that registration needs to be removed on their next release.
+
+### Added — MCP Resources (non-breaking)
+- `councils://list` — full UK planning portal registry (99 councils) as a queryable resource. LLMs can read this once instead of repeatedly calling `planning_search` for individual lookups.
+- `council://{code}` — single-council profile by code/slug.
+- `sdlt-bands://current` — April 2025 UK Stamp Duty Land Tax band schedule, including additional-property + non-resident surcharges and first-time buyer relief. LLMs can cite the bands directly without forcing a `stamp_duty` calculator call.
+- `epc-ratings://reference` — A–G EPC band definitions, SAP score ranges, and regulatory context (April 2025 rental minimum of band C). Grounds LLM EPC explanations in canonical data rather than training-data recall.
+
+### Removed — dev utilities
+- `component_test` and `image_test` MCP tools removed from `propertydata.fly.dev/mcp`. These were internal dev artifacts that polluted the production tool selection surface.
+
+### Added — MCP Prompts (non-breaking)
+- `full_property_analysis` — replaces the removed `property_report` / `get_property_data` tools.
+- `area_comparison` — multi-postcode comparison workflow (compares 2-3 postcodes on price, yield, market depth).
+- `investment_analysis` — single-property buy-to-let evaluation (yield, SDLT, EPC compliance, key risks).
+
+## v1.10.0 (2026-05-12, upstream)
+
+### Breaking Changes
+- REST API `/v1/ppd/comps` now defaults `auto_escalate=true`. Previously the REST API was the odd one out —  All three interfaces now behave identically: thin markets auto-widen from postcode→sector→district, with the `escalated_from`/`escalated_to` fields in the response indicating any widening that occurred. Pass `auto_escalate=false` to opt out.
+- `PPDService.comps()` now defaults `transaction_category="A"` (standard residential sales). Category-B rows (bulk transfers, non-standard conveyances) are excluded unless callers explicitly opt back in via `transaction_category=None`. This fixes data-parity with the production `prop` MCP server.
+- `PPDService.comps()` `property_type=None` no longer means "no filter" — it now restricts results to the residential set (F+D+S+T). Pass the new sentinel `property_type="ALL"` for the unfiltered Land Registry firehose (including commercial/other). Specific codes (`"F"`/`"D"`/`"S"`/`"T"`/`"O"`) continue to filter to a single type.
+- `PPDService.comps()` now accepts `filter_outliers: bool = False`. When set to `True`, a 1.5×IQR filter is applied to prices — outliers are dropped from BOTH the computed stats and the returned `transactions` list, so the response is internally consistent. Needs ≥4 prices, otherwise no-op.
+- The three new defaults and the `"ALL"` sentinel are exposed across all consumer interfaces — REST `/v1/ppd/comps`, MCP `property_comps`, MCP app `search_comps`/`comps_dashboard`, and CLI `property-cli ppd comps` (with `--transaction-category`, `--property-type`, `--filter-outliers`/`--no-filter-outliers`). CLI accepts `--transaction-category all` as the firehose escape hatch.
 
 ## v1.4.0 (2026-03-28)
 
