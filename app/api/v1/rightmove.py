@@ -21,7 +21,8 @@ router = APIRouter(prefix="/rightmove", tags=["rightmove"])
 
 @router.get("/search-url", response_model=RightmoveSearchURLResponse)
 async def search_url(
-    postcode: str = Query(..., min_length=2),
+    postcode: Optional[str] = Query(None, min_length=2, description="Postcode/outcode/town — mutually exclusive with station"),
+    station: Optional[str] = Query(None, min_length=2, description="Station name (e.g. 'Hitchin Station'); anchors radius on the platform"),
     property_type: Literal["sale", "rent"] = "sale",
     building_type: Optional[str] = Query(None, description="F=flat, D=detached, S=semi, T=terraced"),
     min_price: Optional[int] = Query(None, ge=0),
@@ -31,12 +32,18 @@ async def search_url(
     radius: Optional[float] = Query(None, ge=0),
     sort_by: Optional[str] = Query(None, description="newest|oldest|price_low|price_high|most_reduced"),
 ) -> RightmoveSearchURLResponse:
-    """Build a Rightmove search URL from a postcode/outcode."""
+    """Build a Rightmove search URL from a postcode/outcode or a station name."""
+    if bool(postcode) == bool(station):
+        raise HTTPException(
+            status_code=422,
+            detail="Provide exactly one of 'postcode' or 'station'",
+        )
     try:
         url = await anyio.to_thread.run_sync(
             partial(
                 RightmoveLocationAPI().build_search_url,
                 postcode,
+                station=station,
                 property_type=property_type,
                 building_type=building_type,
                 min_price=min_price,
@@ -48,6 +55,8 @@ async def search_url(
             )
         )
         return RightmoveSearchURLResponse(url=url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Rightmove lookup failed: {exc}") from exc
 

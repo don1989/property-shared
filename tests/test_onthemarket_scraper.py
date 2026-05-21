@@ -52,6 +52,84 @@ def test_url_builder_invalid_property_type():
         OnTheMarketLocationAPI().build_search_url("SW1A 1AA", property_type="lease")
 
 
+def test_url_builder_station_slug_with_travel_duration():
+    """Station-anchored commute search: '15 min walk from Hitchin Station'."""
+    url = OnTheMarketLocationAPI().build_search_url(
+        "Hitchin Station",
+        min_bedrooms=3,
+        max_bedrooms=3,
+        building_type="T",
+        travel_duration=15,
+    )
+    assert url.startswith(
+        "https://www.onthemarket.com/for-sale/property/hitchin-station/?"
+    )
+    assert "travel-duration=15" in url
+    assert "travel-type=walking" in url  # defaulted
+    assert "min-bedrooms=3" in url
+    assert "prop-types=terraced" in url
+
+
+def test_url_builder_travel_type_without_duration():
+    """travel_type alone is allowed (rare but valid)."""
+    url = OnTheMarketLocationAPI().build_search_url(
+        "Hitchin Station", travel_type="cycling"
+    )
+    assert "travel-type=cycling" in url
+    assert "travel-duration" not in url
+
+
+def test_url_builder_rejects_unknown_travel_type():
+    with pytest.raises(ValueError, match="travel_type must be one of"):
+        OnTheMarketLocationAPI().build_search_url(
+            "Hitchin Station", travel_duration=15, travel_type="teleport"
+        )
+
+
+def test_unknown_location_raises_typed_error():
+    """OTM returns 404 + an HTML interstitial when the slug doesn't exist;
+    the scraper must surface that as OnTheMarketLocationNotFound rather
+    than a generic 404 (or worse, an empty listing list)."""
+    from unittest.mock import MagicMock, patch
+
+    from property_core.onthemarket_scraper import (
+        OnTheMarketLocationNotFound,
+        fetch_listings,
+    )
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.text = (
+        "<html><body>"
+        "<h1>Location 'watford-metropolitan-station' not recognised</h1>"
+        "</body></html>"
+    )
+    with patch(
+        "property_core.onthemarket_scraper.Session.get",
+        return_value=mock_response,
+    ):
+        with pytest.raises(OnTheMarketLocationNotFound) as exc_info:
+            fetch_listings(
+                "https://www.onthemarket.com/for-sale/property/watford-metropolitan-station/",
+                retry_attempts=1,
+            )
+    assert exc_info.value.slug == "watford-metropolitan-station"
+    assert "watford-metropolitan-station" in str(exc_info.value)
+
+
+def test_url_builder_rejects_unsupported_travel_duration():
+    """OnTheMarket's filter only accepts 15/30/45/60 — anything else
+    silently returns zero results upstream, so the builder must reject it."""
+    with pytest.raises(ValueError, match="travel_duration must be one of"):
+        OnTheMarketLocationAPI().build_search_url(
+            "Hitchin Station", travel_duration=10
+        )
+    with pytest.raises(ValueError, match="travel_duration must be one of"):
+        OnTheMarketLocationAPI().build_search_url(
+            "Hitchin Station", travel_duration=0
+        )
+
+
 def test_url_builder_empty_postcode():
     with pytest.raises(ValueError):
         OnTheMarketLocationAPI().build_search_url("")

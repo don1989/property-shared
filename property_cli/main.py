@@ -477,20 +477,24 @@ app.add_typer(rightmove, name="rightmove")
 
 @rightmove.command("search-url")
 def rightmove_search_url(
-    postcode: list[str] = typer.Argument(..., help="Postcode (can include spaces)"),
+    postcode: Optional[list[str]] = typer.Argument(None, help="Postcode (can include spaces). Omit if using --station."),
+    station: Optional[str] = typer.Option(None, "--station", help="Station name (e.g. 'Hitchin Station'). Anchors radius on the platform rather than a postcode centroid."),
     property_type: str = typer.Option("sale"),
     building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
     radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
     sort_by: Optional[str] = typer.Option(None, help="newest|oldest|price_low|price_high|most_reduced"),
     api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
 ) -> None:
-    postcode_value = _join_tokens(postcode)
+    postcode_value = _join_tokens(postcode) if postcode else None
+    if bool(postcode_value) == bool(station):
+        raise typer.BadParameter("Provide exactly one of POSTCODE or --station")
     http = _maybe_http_client(api_url)
     if http:
-        params: dict = {
-            "postcode": postcode_value,
-            "property_type": property_type,
-        }
+        params: dict = {"property_type": property_type}
+        if postcode_value:
+            params["postcode"] = postcode_value
+        if station:
+            params["station"] = station
         if building_type:
             params["building_type"] = building_type
         if radius is not None:
@@ -503,6 +507,7 @@ def rightmove_search_url(
         api = RightmoveLocationAPI()
         url = api.build_search_url(
             postcode_value,
+            station=station,
             property_type=property_type,
             building_type=building_type,
             radius=radius,
@@ -723,10 +728,12 @@ app.add_typer(otm, name="onthemarket")
 
 @otm.command("search-url")
 def otm_search_url(
-    postcode: list[str] = typer.Argument(..., help="Postcode or area name"),
+    postcode: list[str] = typer.Argument(..., help="Postcode, area name, or station slug (e.g. 'Hitchin Station')"),
     property_type: str = typer.Option("sale"),
     building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
     radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
+    travel_duration: Optional[int] = typer.Option(None, "--travel-duration", help="Commute time in minutes (15/30/45/60 — OTM's fixed dropdown). Use with a station slug."),
+    travel_type: Optional[str] = typer.Option(None, "--travel-type", help="walking|cycling|driving|public-transport (default: walking)"),
     api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
 ) -> None:
     postcode_value = _join_tokens(postcode)
@@ -737,6 +744,10 @@ def otm_search_url(
             params["building_type"] = building_type
         if radius is not None:
             params["radius"] = radius
+        if travel_duration is not None:
+            params["travel_duration"] = travel_duration
+        if travel_type:
+            params["travel_type"] = travel_type
         data = http.get("/v1/onthemarket/search-url", params=params)
         typer.echo(data.get("url"))
     else:
@@ -745,6 +756,8 @@ def otm_search_url(
             property_type=property_type,
             building_type=building_type,
             radius=radius,
+            travel_duration=travel_duration,
+            travel_type=travel_type,
         )
         typer.echo(url)
 

@@ -34,6 +34,12 @@ _BUILDING_TYPES = {
 
 _SLUG_INVALID = re.compile(r"[^a-z0-9-]")
 
+_TRAVEL_TYPES = {"walking", "cycling", "driving", "public-transport"}
+
+# OnTheMarket's commute filter is a fixed dropdown; out-of-set values silently
+# return zero results instead of being rejected or snapped, so validate here.
+_TRAVEL_DURATIONS = frozenset({15, 30, 45, 60})
+
 
 def _to_slug(value: str) -> str:
     """Lower-case, replace whitespace with hyphens, strip other characters.
@@ -66,18 +72,33 @@ class OnTheMarketLocationAPI:
         min_bedrooms: int | None = None,
         max_bedrooms: int | None = None,
         radius: float | None = None,
+        travel_duration: int | None = None,
+        travel_type: str | None = None,
         page: int | None = None,
         **extra_params: object,
     ) -> str:
-        """Build an OnTheMarket search URL from a postcode/area.
+        """Build an OnTheMarket search URL from a postcode/area/station.
 
         Args:
-            postcode: postcode like "SW1A 1AA" or area name like "London".
+            postcode: postcode like ``"SW1A 1AA"``, an area name like
+                ``"London"``, or a station slug like ``"Hitchin Station"``
+                (OnTheMarket accepts station names directly in the slug —
+                ``/property/hitchin-station/``).
             property_type: ``"sale"`` or ``"rent"``.
             building_type: PPD code ("F"/"D"/"S"/"T") or ``None`` for all.
             min_price / max_price: inclusive £ bounds.
             min_bedrooms / max_bedrooms: bedroom bounds.
-            radius: search radius in miles.
+            radius: search radius in miles (mutually exclusive with
+                ``travel_duration``; OnTheMarket ignores ``radius`` when
+                ``travel-duration`` is set).
+            travel_duration: commute time in minutes from the slug
+                anchor. Best paired with a station slug. OnTheMarket
+                only honours ``15``, ``30``, ``45``, or ``60`` —
+                other values silently return zero results, so they
+                raise ``ValueError`` here.
+            travel_type: ``"walking"``, ``"cycling"``, ``"driving"``, or
+                ``"public-transport"``. Defaults to ``"walking"`` when
+                ``travel_duration`` is set without a ``travel_type``.
             page: 1-indexed page number; emitted as ``?page=N``.
 
         Returns:
@@ -101,6 +122,21 @@ class OnTheMarketLocationAPI:
             params["max-bedrooms"] = max_bedrooms
         if radius is not None:
             params["radius"] = radius
+        if travel_type is not None and travel_type not in _TRAVEL_TYPES:
+            raise ValueError(
+                f"travel_type must be one of {sorted(_TRAVEL_TYPES)}, got {travel_type!r}"
+            )
+        if travel_duration is not None:
+            if travel_duration not in _TRAVEL_DURATIONS:
+                raise ValueError(
+                    f"travel_duration must be one of {sorted(_TRAVEL_DURATIONS)} "
+                    f"(OnTheMarket's commute filter is a fixed dropdown), "
+                    f"got {travel_duration!r}"
+                )
+            params["travel-duration"] = travel_duration
+            params["travel-type"] = travel_type or "walking"
+        elif travel_type is not None:
+            params["travel-type"] = travel_type
         if building_type:
             sub = _BUILDING_TYPES.get(building_type.upper())
             if sub:

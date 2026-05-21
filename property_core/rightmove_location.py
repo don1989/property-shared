@@ -56,6 +56,9 @@ class RightmoveLocationAPI:
         self.timeout = timeout
         self.rate_limit_delay = rate_limit_delay
         self._cache: dict[str, str] | None = {} if cache_enabled else None
+        self._station_cache: dict[str, str] | None = (
+            {} if cache_enabled else None
+        )
         self._last_request_time = 0.0
 
     def _rate_limit(self) -> None:
@@ -98,10 +101,51 @@ class RightmoveLocationAPI:
             self._cache[postcode_upper] = identifier
         return identifier
 
+    def lookup_station(self, name: str) -> Optional[str]:
+        """Return Rightmove ``STATION^N`` identifier for a station name.
+
+        Filters typeahead results to ``type == "STATION"`` so callers asking
+        for a station get a station — typeahead also returns STREET / REGION
+        matches that share words with the station name (e.g. "Hitchin
+        Station" also matches "Station Approach, Hitchin").
+
+        Args:
+            name: Station name, with or without the trailing word "Station"
+                (e.g. ``"Hitchin"``, ``"Hitchin Station"``, ``"Kings Cross"``).
+
+        Returns:
+            ``"STATION^<id>"`` for the first STATION match, or ``None`` if
+            no station match was found.
+        """
+        key = name.strip().lower()
+        if self._station_cache is not None and key in self._station_cache:
+            return self._station_cache[key]
+
+        self._rate_limit()
+        url = f"{self.API_BASE}{self.TYPEAHEAD_ENDPOINT}"
+        params = {"query": name, "limit": 10, "exclude": "STREET"}
+        try:
+            response = requests.get(url, params=params, timeout=self.timeout)
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as exc:
+            raise LocationLookupError(
+                f"Failed to lookup station '{name}': {exc}"
+            ) from exc
+
+        for match in data.get("matches", []):
+            if match.get("type") == "STATION" and match.get("id"):
+                identifier = f"STATION^{match['id']}"
+                if self._station_cache is not None:
+                    self._station_cache[key] = identifier
+                return identifier
+        return None
+
     def build_search_url(
         self,
-        postcode: str,
+        postcode: str | None = None,
         *,
+        station: str | None = None,
         property_type: str = "sale",
         building_type: str | None = None,
         min_price: int | None = None,
@@ -112,12 +156,35 @@ class RightmoveLocationAPI:
         sort_by: str | None = None,
         **extra_params,
     ) -> str:
-        """Build a Rightmove search URL from a postcode/outcode."""
-        location_identifier = self.lookup_postcode(postcode)
-        if not location_identifier:
-            raise LocationLookupError(
-                f"Could not find location identifier for postcode '{postcode}'."
+        """Build a Rightmove search URL.
+
+        Provide exactly one anchor:
+
+        - ``postcode`` — postcode/outcode/town name; resolved via typeahead
+          to whatever location type Rightmove ranks first (REGION / OUTCODE
+          / POSTCODE).
+        - ``station`` — station name; resolved via :meth:`lookup_station`
+          to a ``STATION^N`` identifier so ``radius`` is measured from the
+          station platform rather than a postcode centroid. Combine with
+          ``radius=0.5`` for roughly a 10-minute walk.
+        """
+        if (postcode is None) == (station is None):
+            raise ValueError(
+                "build_search_url requires exactly one of postcode= or station="
             )
+
+        if station is not None:
+            location_identifier = self.lookup_station(station)
+            if not location_identifier:
+                raise LocationLookupError(
+                    f"Could not find station identifier for '{station}'."
+                )
+        else:
+            location_identifier = self.lookup_postcode(postcode)  # type: ignore[arg-type]
+            if not location_identifier:
+                raise LocationLookupError(
+                    f"Could not find location identifier for postcode '{postcode}'."
+                )
 
         # Full postcodes tend to be very tight searches; default to a small radius
         # so the first request is more likely to return results.

@@ -44,7 +44,26 @@ class OnTheMarketError(Exception):
     """Raised when OnTheMarket data cannot be fetched or parsed."""
 
 
+class OnTheMarketLocationNotFound(OnTheMarketError):
+    """Raised when OnTheMarket returns a 404 with a ``Location 'X' not
+    recognised`` interstitial — i.e. the search slug doesn't map to any
+    location OnTheMarket knows about. Callers see this instead of an empty
+    listing set so the failure mode is unambiguous."""
+
+    def __init__(self, slug: str, url: str) -> None:
+        self.slug = slug
+        self.url = url
+        super().__init__(
+            f"OnTheMarket does not recognise location slug {slug!r} "
+            f"(GET {url} -> 404). Check the slug on the OnTheMarket "
+            f"website's search box and adjust the postcode/area string."
+        )
+
+
 _DETAIL_HREF_RE = re.compile(r"^/details/(\d+)/?")
+_LOCATION_NOT_RECOGNISED_RE = re.compile(
+    r"Location ['\"]([^'\"]+)['\"] not recognised", re.IGNORECASE
+)
 _DATALAYER_RE = re.compile(
     r"dataLayer\.push\s*\(\s*(\{.*?\})\s*\)\s*;?", re.DOTALL
 )
@@ -174,6 +193,15 @@ def _make_request(session: Session, url: str, timeout: float) -> Response:
 
     if response.status_code == 429 or response.status_code >= 500:
         raise RetryableError(f"Server responded with {response.status_code}")
+    if response.status_code == 404:
+        # OTM returns 404 + a "Location 'X' not recognised" interstitial when
+        # the search slug doesn't exist (rather than redirecting or 200ing with
+        # zero results). Surface that as a typed exception so callers don't
+        # confuse it with a transient failure or with a genuinely empty
+        # search.
+        match = _LOCATION_NOT_RECOGNISED_RE.search(response.text)
+        if match:
+            raise OnTheMarketLocationNotFound(slug=match.group(1), url=url)
     if response.status_code >= 400:
         raise OnTheMarketError(f"Request failed with status code {response.status_code}")
     return response
