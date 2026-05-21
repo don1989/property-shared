@@ -34,6 +34,8 @@ _BUILDING_TYPES = {
 
 _SLUG_INVALID = re.compile(r"[^a-z0-9-]")
 
+_TRAVEL_TYPES = {"walking", "cycling", "driving", "public-transport"}
+
 
 def _to_slug(value: str) -> str:
     """Lower-case, replace whitespace with hyphens, strip other characters.
@@ -66,18 +68,30 @@ class OnTheMarketLocationAPI:
         min_bedrooms: int | None = None,
         max_bedrooms: int | None = None,
         radius: float | None = None,
+        travel_duration: int | None = None,
+        travel_type: str | None = None,
         page: int | None = None,
         **extra_params: object,
     ) -> str:
-        """Build an OnTheMarket search URL from a postcode/area.
+        """Build an OnTheMarket search URL from a postcode/area/station.
 
         Args:
-            postcode: postcode like "SW1A 1AA" or area name like "London".
+            postcode: postcode like ``"SW1A 1AA"``, an area name like
+                ``"London"``, or a station slug like ``"Hitchin Station"``
+                (OnTheMarket accepts station names directly in the slug —
+                ``/property/hitchin-station/``).
             property_type: ``"sale"`` or ``"rent"``.
             building_type: PPD code ("F"/"D"/"S"/"T") or ``None`` for all.
             min_price / max_price: inclusive £ bounds.
             min_bedrooms / max_bedrooms: bedroom bounds.
-            radius: search radius in miles.
+            radius: search radius in miles (mutually exclusive with
+                ``travel_duration``; OnTheMarket ignores ``radius`` when
+                ``travel-duration`` is set).
+            travel_duration: commute time in minutes from the slug
+                anchor. Best paired with a station slug.
+            travel_type: ``"walking"``, ``"cycling"``, ``"driving"``, or
+                ``"public-transport"``. Defaults to ``"walking"`` when
+                ``travel_duration`` is set without a ``travel_type``.
             page: 1-indexed page number; emitted as ``?page=N``.
 
         Returns:
@@ -101,6 +115,17 @@ class OnTheMarketLocationAPI:
             params["max-bedrooms"] = max_bedrooms
         if radius is not None:
             params["radius"] = radius
+        if travel_type is not None and travel_type not in _TRAVEL_TYPES:
+            raise ValueError(
+                f"travel_type must be one of {sorted(_TRAVEL_TYPES)}, got {travel_type!r}"
+            )
+        if travel_duration is not None:
+            if travel_duration <= 0:
+                raise ValueError("travel_duration must be a positive number of minutes")
+            params["travel-duration"] = travel_duration
+            params["travel-type"] = travel_type or "walking"
+        elif travel_type is not None:
+            params["travel-type"] = travel_type
         if building_type:
             sub = _BUILDING_TYPES.get(building_type.upper())
             if sub:
