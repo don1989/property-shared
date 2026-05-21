@@ -690,7 +690,82 @@ def onthemarket_listing(
 
 
 # ---------------------------------------------------------------------------
-# 8. Property blocks — find buildings with multiple flat sales
+# 8. NewHomesForSale — UK new-build developments aggregator
+# ---------------------------------------------------------------------------
+
+
+def search_newhomesforsale(
+    county: str,
+    town: str | None = None,
+) -> dict:
+    """Raw NHFS search — returns dict. Used by the MCP tool and tests."""
+    from property_core import NewHomesForSaleLocationAPI, fetch_nhfs_listings
+
+    search_url = NewHomesForSaleLocationAPI().build_search_url(
+        county=county, town=town
+    )
+    listings = fetch_nhfs_listings(search_url, rate_limit_seconds=0)
+    return {
+        "search_url": search_url,
+        "count": len(listings),
+        "results": [_slim(l.model_dump(mode="json", exclude_none=True)) for l in listings],
+    }
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"newhomesforsale", "newbuild"},
+    timeout=60.0,
+)
+def newhomesforsale_search(
+    county: Annotated[
+        str,
+        Field(description="UK county name or slug, e.g. 'Hertfordshire'"),
+    ],
+    town: Annotated[
+        str | None,
+        Field(description="Optional town within the county, e.g. 'Hitchin'"),
+    ] = None,
+) -> dict:
+    """Fetch UK new-build developments from NewHomesForSale.co.uk.
+
+    Aggregates ~2,600 UK new-build developments including
+    developer-direct stock that often doesn't appear on Rightmove /
+    OnTheMarket / Zoopla. Each result includes postcode, bedroom
+    range, price range, developer name, and the NHFS URL.
+    """
+    return search_newhomesforsale(county=county, town=town)
+
+
+def lookup_newhomesforsale_listing(url: str) -> dict:
+    """Raw NHFS development detail page lookup — returns dict."""
+    from property_core import fetch_nhfs_listing
+
+    return fetch_nhfs_listing(url)
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"newhomesforsale", "newbuild"},
+    timeout=30.0,
+)
+def newhomesforsale_listing(
+    url: Annotated[
+        str,
+        Field(description="Absolute NHFS development URL"),
+    ],
+) -> dict:
+    """Fetch a NewHomesForSale development detail page.
+
+    Detail pages are sparse — most data lives on the search card. Use
+    ``newhomesforsale_search`` for the primary record; use this only
+    to confirm the og-image / address on the developer's page.
+    """
+    return lookup_newhomesforsale_listing(url)
+
+
+# ---------------------------------------------------------------------------
+# 9. Property blocks — find buildings with multiple flat sales
 # ---------------------------------------------------------------------------
 
 
@@ -747,7 +822,7 @@ def property_blocks(
 
 
 # ---------------------------------------------------------------------------
-# 9. PPD transactions — raw Land Registry transactions for a postcode
+# 10. PPD transactions — raw Land Registry transactions for a postcode
 # ---------------------------------------------------------------------------
 
 

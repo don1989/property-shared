@@ -496,6 +496,48 @@ def onthemarket_listing(
     return _slim(result.model_dump(mode="json", exclude_none=True))
 
 
+@mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
+async def newhomesforsale_search(
+    county: str,
+    town: str | None = None,
+) -> list[dict]:
+    """Fetch UK new-build developments from NewHomesForSale.co.uk.
+
+    NewHomesForSale aggregates ~2,600 UK new-build developments
+    including developer-direct stock that often doesn't appear on
+    Rightmove / OnTheMarket / Zoopla. Each result has an address +
+    postcode, bedroom range, price range, developer name, and the
+    URL on NHFS for follow-up.
+
+    Provide ``county`` (e.g. 'Hertfordshire'); narrow with ``town``
+    (e.g. 'Hitchin') if you only want one town within the county.
+    Slugs are auto-derived.
+    """
+    import anyio
+    from property_core import NewHomesForSaleLocationAPI, fetch_nhfs_listings
+    loc_api = NewHomesForSaleLocationAPI()
+    search_url = loc_api.build_search_url(county=county, town=town)
+    listings = await anyio.to_thread.run_sync(
+        lambda: fetch_nhfs_listings(search_url, rate_limit_seconds=0)
+    )
+    return [_slim(l.model_dump(mode="json", exclude_none=True)) for l in listings]
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
+async def newhomesforsale_listing(url: str) -> dict:
+    """Fetch a NewHomesForSale development detail page.
+
+    Detail pages are sparse — they mostly host enquiry forms. The
+    listing data on the corresponding search-card (returned by
+    ``newhomesforsale_search``) is richer and is the primary record.
+    Use this tool only when you need to confirm the og-image / address
+    on the developer's own page (linked from this response).
+    """
+    import anyio
+    from property_core import fetch_nhfs_listing
+    return await anyio.to_thread.run_sync(lambda: fetch_nhfs_listing(url))
+
+
 @mcp.tool(annotations={"readOnlyHint": True})
 async def property_blocks(
     postcode: str,
