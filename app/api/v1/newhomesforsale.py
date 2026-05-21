@@ -48,6 +48,8 @@ async def listings(
             partial(fetch_listings, search_url, rate_limit_seconds=0)
         )
         return NewHomesForSaleListingsResponse(count=len(results), results=results)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except NewHomesForSaleError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -65,5 +67,7 @@ async def listing_detail(
     try:
         result = await anyio.to_thread.run_sync(partial(fetch_listing, url))
         return NewHomesForSaleListingDetailResponse(result=result)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except NewHomesForSaleError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

@@ -9,8 +9,10 @@ import pytest
 
 from property_core.newhomesforsale_location import NewHomesForSaleLocationAPI
 from property_core.newhomesforsale_scraper import (
+    NewHomesForSaleError,
     _parse_detail_html,
     _parse_search_html,
+    fetch_listing,
     fetch_listings,
 )
 
@@ -119,10 +121,86 @@ def test_detail_extracts_postcode_and_meta():
         html,
         "https://www.newhomesforsale.co.uk/new-homes/greater-london/woolwich/royal-arsenal-riverside-berkeley-homes/",
     )
-    assert result["postcode"] == "SE18 6FR"
-    assert result["og_title"] == "Royal Arsenal Riverside"
-    assert "Berkeley" in (result["og_description"] or "")
-    assert "Royal Arsenal Riverside" in (result["title"] or "")
+    assert result.postcode == "SE18 6FR"
+    assert result.og_title == "Royal Arsenal Riverside"
+    assert "Berkeley" in (result.og_description or "")
+    assert "Royal Arsenal Riverside" in (result.title or "")
+    # Address should include the postcode and the street/locality/region
+    assert result.address and "SE18 6FR" in result.address
+    assert "Woolwich" in (result.address or "")
+
+
+# ---------------------------------------------------------------------------
+# Error paths
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_listing_rejects_numeric_id():
+    """Numeric ids can't be resolved without a prior search (NHFS detail
+    URLs need a county/town/slug path)."""
+    with pytest.raises(NewHomesForSaleError, match="absolute URL"):
+        fetch_listing("18117")
+
+
+def test_fetch_listings_raises_on_persistent_5xx():
+    """5xx is retryable; after exhausted retries the scraper raises
+    ``NewHomesForSaleError`` rather than returning an empty list."""
+    from unittest.mock import MagicMock, patch
+
+    mock_response = MagicMock()
+    mock_response.status_code = 503
+    mock_response.text = ""
+
+    with patch(
+        "property_core.newhomesforsale_scraper.Session.get",
+        return_value=mock_response,
+    ):
+        with pytest.raises(NewHomesForSaleError, match="retries"):
+            fetch_listings(
+                "https://www.newhomesforsale.co.uk/new-homes/hertfordshire/hitchin/",
+                rate_limit_seconds=0,
+                retry_attempts=2,
+                retry_backoff=0,
+            )
+
+
+def test_fetch_listings_raises_on_4xx():
+    """4xx is non-retryable; the scraper raises immediately."""
+    from unittest.mock import MagicMock, patch
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.text = ""
+
+    with patch(
+        "property_core.newhomesforsale_scraper.Session.get",
+        return_value=mock_response,
+    ):
+        with pytest.raises(NewHomesForSaleError, match="404"):
+            fetch_listings(
+                "https://www.newhomesforsale.co.uk/new-homes/nowhere/",
+                rate_limit_seconds=0,
+            )
+
+
+def test_fetch_listings_empty_page_returns_empty_list():
+    """A 200 with no developmentSummary cards is a legitimate empty
+    result (e.g. a county with no listed developments), not an error."""
+    from unittest.mock import MagicMock, patch
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = "<html><body><p>No results</p></body></html>"
+
+    with patch(
+        "property_core.newhomesforsale_scraper.Session.get",
+        return_value=mock_response,
+    ):
+        result = fetch_listings(
+            "https://www.newhomesforsale.co.uk/new-homes/somewhere/",
+            rate_limit_seconds=0,
+        )
+    assert result == []
 
 
 # ---------------------------------------------------------------------------

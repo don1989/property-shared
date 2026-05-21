@@ -535,7 +535,8 @@ async def newhomesforsale_listing(url: str) -> dict:
     """
     import anyio
     from property_core import fetch_nhfs_listing
-    return await anyio.to_thread.run_sync(lambda: fetch_nhfs_listing(url))
+    result = await anyio.to_thread.run_sync(lambda: fetch_nhfs_listing(url))
+    return _slim(result.model_dump(mode="json", exclude_none=True))
 
 
 @mcp.tool(annotations={"readOnlyHint": True})

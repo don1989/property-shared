@@ -51,3 +51,29 @@ class NewHomesForSaleDevelopment(BaseModel):
         description="Numeric distance parsed from ``distance_text`` (miles, crow flies)",
     )
     raw: dict[str, Any] | None = Field(default=None, exclude=True)
+
+
+class NewHomesForSaleDevelopmentDetail(BaseModel):
+    """Detail-page record for a single NewHomesForSale development.
+
+    NHFS detail pages are deliberately sparse — they host enquiry
+    forms rather than rich listing data, so this model surfaces only
+    the fields that are reliably parseable from the og-meta tags and
+    the ``PostalAddress`` block in the (partly-malformed) JSON-LD.
+    For richer listing data (price range, beds, developer, etc.),
+    use the search-card record returned by ``fetch_listings``.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    url: str = Field(description="The fetched URL (after redirects)")
+    title: str | None = Field(default=None, description="Page <h1> text")
+    og_title: str | None = Field(default=None, description="og:title meta")
+    og_description: str | None = Field(default=None, description="og:description meta")
+    og_image: str | None = Field(default=None, description="og:image meta")
+    address: str | None = Field(
+        default=None,
+        description="Full single-line address assembled from the JSON-LD PostalAddress",
+    )
+    postcode: str | None = Field(default=None, description="UK postcode")
+    raw: dict[str, Any] | None = Field(default=None, exclude=True)

@@ -741,7 +741,7 @@ def lookup_newhomesforsale_listing(url: str) -> dict:
     """Raw NHFS development detail page lookup — returns dict."""
     from property_core import fetch_nhfs_listing
 
-    return fetch_nhfs_listing(url)
+    return _slim(fetch_nhfs_listing(url).model_dump(mode="json", exclude_none=True))
 
 
 @mcp.tool(

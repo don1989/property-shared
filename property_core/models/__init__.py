@@ -33,7 +33,10 @@ from property_core.models.report import (
     SaleRecord,
     YieldAnalysis,
 )
-from property_core.models.newhomesforsale import NewHomesForSaleDevelopment
+from property_core.models.newhomesforsale import (
+    NewHomesForSaleDevelopment,
+    NewHomesForSaleDevelopmentDetail,
+)
 from property_core.models.rightmove import RightmoveListingDetail, RightmoveListing
 from property_core.models.zoopla import ZooplaListing, ZooplaListingDetail
 from property_core.models.onthemarket import OnTheMarketListing, OnTheMarketListingDetail
@@ -55,6 +58,7 @@ __all__ = [
     "LocalAuthority",
     "MarketAnalysis",
     "NewHomesForSaleDevelopment",
+    "NewHomesForSaleDevelopmentDetail",
     "OnTheMarketListing",
     "OnTheMarketListingDetail",
     "PPDCompsQuery",

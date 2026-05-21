@@ -975,7 +975,7 @@ def nhfs_listing(
         data = http.get("/v1/newhomesforsale/listing", params={"url": url})
         result = data.get("result", {})
     else:
-        result = fetch_nhfs_listing(url)
+        result = fetch_nhfs_listing(url).model_dump(mode="json", exclude_none=True)
 
     table = Table(title=result.get("title") or "Development")
     table.add_column("Field", style="bold")

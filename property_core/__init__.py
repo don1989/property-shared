@@ -33,7 +33,10 @@ from property_core.stamp_duty import StampDutyResult, calculate_stamp_duty
 from property_core.yield_service import calculate_yield
 from property_core.rightmove_location import RightmoveLocationAPI
 from property_core.rightmove_scraper import fetch_listing, fetch_listings
-from property_core.models.newhomesforsale import NewHomesForSaleDevelopment
+from property_core.models.newhomesforsale import (
+    NewHomesForSaleDevelopment,
+    NewHomesForSaleDevelopmentDetail,
+)
 from property_core.models.onthemarket import OnTheMarketListing, OnTheMarketListingDetail
 from property_core.models.zoopla import ZooplaListing, ZooplaListingDetail
 from property_core.newhomesforsale_location import NewHomesForSaleLocationAPI
@@ -93,6 +96,7 @@ __all__ = [
     "CompanySearchResult",
     "EPCData",
     "NewHomesForSaleDevelopment",
+    "NewHomesForSaleDevelopmentDetail",
     "OnTheMarketListing",
     "OnTheMarketListingDetail",
     "PostcodeResult",

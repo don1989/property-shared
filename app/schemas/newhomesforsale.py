@@ -1,18 +1,16 @@
 """API envelope schemas for NewHomesForSale endpoints.
 
-The domain model lives in
-``property_core.models.newhomesforsale.NewHomesForSaleDevelopment``;
-this file defines only the API response wrappers.
+Domain models live in ``property_core.models.newhomesforsale``; this
+file defines only the API response wrappers.
 """
 
 from __future__ import annotations
-
-from typing import Any, List
 
 from pydantic import BaseModel, Field
 
 from property_core.models.newhomesforsale import (  # noqa: F401
     NewHomesForSaleDevelopment,
+    NewHomesForSaleDevelopmentDetail,
 )
 
 
@@ -22,11 +20,8 @@ class NewHomesForSaleSearchURLResponse(BaseModel):
 
 class NewHomesForSaleListingsResponse(BaseModel):
     count: int
-    results: List[NewHomesForSaleDevelopment] = Field(default_factory=list)
+    results: list[NewHomesForSaleDevelopment] = Field(default_factory=list)
 
 
 class NewHomesForSaleListingDetailResponse(BaseModel):
-    """Detail pages return a sparse dict (NHFS detail pages are mostly
-    enquiry forms with little structured data)."""
-
-    result: dict[str, Any]
+    result: NewHomesForSaleDevelopmentDetail

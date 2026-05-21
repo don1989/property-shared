@@ -30,7 +30,10 @@ from tenacity import (
     wait_exponential,
 )
 
-from property_core.models.newhomesforsale import NewHomesForSaleDevelopment
+from property_core.models.newhomesforsale import (
+    NewHomesForSaleDevelopment,
+    NewHomesForSaleDevelopmentDetail,
+)
 
 _BASE = "https://www.newhomesforsale.co.uk"
 
@@ -57,8 +60,6 @@ _POSTCODE_RE = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b")
 _PRICE_RANGE_RE = re.compile(
     r"£\s*([\d,]+)\s*(?:-|–|to)\s*£?\s*([\d,]+)|£\s*([\d,]+)"
 )
-_BEDS_RANGE_RE = re.compile(r"(\d+)(?:\s*[,&]\s*(\d+))*\s*&?\s*(\d+)?\s*[Bb]edroom")
-_BEDS_ANY_RE = re.compile(r"(\d+)\s*[Bb]edroom")
 _DISTANCE_MILES_RE = re.compile(r"approximately\s+([\d.]+)\s*miles?")
 
 
@@ -108,30 +109,49 @@ def fetch_listings(
     return _parse_search_html(response.text)
 
 
-def fetch_listing(url_or_id: str, *, timeout: float = 15.0) -> dict[str, Any]:
+def fetch_listing(
+    url_or_id: str,
+    *,
+    timeout: float = 15.0,
+    rate_limit_seconds: float = 0.4,
+    retry_attempts: int = 3,
+    retry_backoff: float = 1.5,
+) -> NewHomesForSaleDevelopmentDetail:
     """Fetch a single NewHomesForSale development detail page.
 
-    NHFS detail pages are sparse — most useful fields are duplicated
-    from the search card. Returns a dict (not a typed model) reflecting
-    the variable structure: title, postcode, og-image, developer,
-    breadcrumb, and the raw JSON-LD blob when parseable.
+    NHFS detail pages are deliberately sparse — most useful fields are
+    duplicated from the search card. The returned model captures the
+    reliably-parseable subset (title, postcode, address, og-tags); for
+    richer listing data use ``fetch_listings`` and read the
+    ``NewHomesForSaleDevelopment`` records.
 
     Args:
         url_or_id: Absolute NHFS URL like
-            ``"https://www.newhomesforsale.co.uk/new-homes/.../foo-bar/"``
-            or a numeric development id (in which case the search-card
-            URL must be looked up first — this function will raise).
+            ``"https://www.newhomesforsale.co.uk/new-homes/.../foo-bar/"``.
+            Numeric development ids cannot be resolved without a prior
+            search (NHFS detail URLs include a county/town/slug path),
+            so they are rejected with :class:`NewHomesForSaleError`.
+
+    Raises:
+        NewHomesForSaleError: on bad input, persistent network failure,
+            or upstream HTTP error.
     """
     if not url_or_id.startswith("http"):
         raise NewHomesForSaleError(
             "fetch_listing requires an absolute URL; numeric ids cannot be resolved "
             "without a prior search (NHFS detail URLs include a county/town/slug path)"
         )
-    response = requests.get(url_or_id, headers=_DEFAULT_HEADERS, timeout=timeout)
-    if response.status_code >= 400:
-        raise NewHomesForSaleError(
-            f"NewHomesForSale detail fetch failed ({response.status_code}) for {url_or_id}"
-        )
+    if rate_limit_seconds:
+        time.sleep(rate_limit_seconds)
+
+    session = Session()
+    response = _get_with_retries(
+        session=session,
+        url=url_or_id,
+        timeout=timeout,
+        retry_attempts=retry_attempts,
+        retry_backoff=retry_backoff,
+    )
     return _parse_detail_html(response.text, response.url)
 
 
@@ -425,14 +445,11 @@ def _extract_description(text_lines: list[str]) -> str | None:
     return max(candidates, key=len)
 
 
-def _parse_detail_html(html: str, final_url: str) -> dict[str, Any]:
+def _parse_detail_html(html: str, final_url: str) -> NewHomesForSaleDevelopmentDetail:
     """Pull what we can from a NHFS detail page.
 
     NHFS detail pages mostly host enquiry forms; the structured data
     lives in og:* meta tags and a partly-malformed ``ld+json`` blob.
-    Returns a dict (not a Pydantic model) so callers can pick what
-    they need without paying for a strict schema that NHFS doesn't
-    actually meet.
     """
     soup = BeautifulSoup(html, "html.parser")
 
@@ -446,8 +463,8 @@ def _parse_detail_html(html: str, final_url: str) -> dict[str, Any]:
     h1 = soup.find("h1")
     title = h1.get_text(strip=True) if h1 else meta("og:title")
 
-    postcode = None
-    address = None
+    postcode: str | None = None
+    address: str | None = None
     postal = _extract_postal_address(html)
     if postal:
         address = ", ".join(
@@ -467,15 +484,16 @@ def _parse_detail_html(html: str, final_url: str) -> dict[str, Any]:
         if m:
             postcode = m.group(1).strip()
 
-    return {
-        "url": final_url,
-        "title": title,
-        "og_title": meta("og:title"),
-        "og_description": meta("og:description"),
-        "og_image": meta("og:image"),
-        "address": address,
-        "postcode": postcode,
-    }
+    return NewHomesForSaleDevelopmentDetail(
+        url=final_url,
+        title=title,
+        og_title=meta("og:title"),
+        og_description=meta("og:description"),
+        og_image=meta("og:image"),
+        address=address,
+        postcode=postcode,
+        raw=None,
+    )
 
 
 def _extract_postal_address(html: str) -> dict[str, str] | None:
