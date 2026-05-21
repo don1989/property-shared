@@ -56,6 +56,29 @@ def test_lookup_station_is_cached():
     assert mock_get.call_count == 1
 
 
+def test_build_search_url_new_build_uses_dedicated_path():
+    """new_build=True must use /new-homes-for-sale/find.html rather than
+    /property-for-sale/find.html — the ?newHome=true query param does not
+    actually filter results."""
+    api = RightmoveLocationAPI(rate_limit_delay=0)
+    payload = {"matches": [{"type": "STATION", "id": "4646"}]}
+    with patch("property_core.rightmove_location.requests.get", return_value=_mock_response(payload)):
+        url = api.build_search_url(
+            station="Hitchin Station",
+            new_build=True,
+            radius=0.5,
+        )
+    assert "/new-homes-for-sale/find.html" in url
+    assert "/property-for-sale/" not in url
+    assert "locationIdentifier=STATION%5E4646" in url
+
+
+def test_build_search_url_rejects_new_build_with_rent():
+    api = RightmoveLocationAPI(rate_limit_delay=0)
+    with pytest.raises(ValueError, match="new_build=True is only valid"):
+        api.build_search_url(postcode="SG4", property_type="rent", new_build=True)
+
+
 def test_build_search_url_with_station():
     api = RightmoveLocationAPI(rate_limit_delay=0)
     payload = {"matches": [{"type": "STATION", "id": "4646"}]}

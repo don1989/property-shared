@@ -22,6 +22,7 @@ _BASE = "https://www.onthemarket.com"
 _PROPERTY_PATHS = {
     "sale": "/for-sale/property",
     "rent": "/to-rent/property",
+    "newhomes": "/new-homes/property",
 }
 
 # PPD property type codes -> OnTheMarket "prop-types[]" filter values.
@@ -67,6 +68,7 @@ class OnTheMarketLocationAPI:
         *,
         property_type: str = "sale",
         building_type: str | None = None,
+        new_build: bool = False,
         min_price: int | None = None,
         max_price: int | None = None,
         min_bedrooms: int | None = None,
@@ -86,6 +88,9 @@ class OnTheMarketLocationAPI:
                 ``/property/hitchin-station/``).
             property_type: ``"sale"`` or ``"rent"``.
             building_type: PPD code ("F"/"D"/"S"/"T") or ``None`` for all.
+            new_build: switch to OnTheMarket's ``/new-homes/`` index which
+                returns developments + individual new-build units. Mutually
+                exclusive with ``property_type="rent"``.
             min_price / max_price: inclusive £ bounds.
             min_bedrooms / max_bedrooms: bedroom bounds.
             radius: search radius in miles (mutually exclusive with
@@ -104,7 +109,10 @@ class OnTheMarketLocationAPI:
         Returns:
             Absolute OnTheMarket URL.
         """
-        path = _PROPERTY_PATHS.get(property_type)
+        if new_build and property_type == "rent":
+            raise ValueError("new_build=True is only valid for property_type='sale'")
+        effective_property_type = "newhomes" if new_build else property_type
+        path = _PROPERTY_PATHS.get(effective_property_type)
         if path is None:
             raise ValueError(f"property_type must be 'sale' or 'rent', got {property_type!r}")
 

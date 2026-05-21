@@ -31,6 +31,7 @@ _BUILDING_TYPES = {
 _PROPERTY_PATHS = {
     "sale": "/for-sale/property",
     "rent": "/to-rent/property",
+    "newhomes": "/new-homes/for-sale",
 }
 
 _SLUG_INVALID = re.compile(r"[^a-z0-9-]")
@@ -69,6 +70,7 @@ class ZooplaLocationAPI:
         *,
         property_type: str = "sale",
         building_type: str | None = None,
+        new_build: bool = False,
         min_price: int | None = None,
         max_price: int | None = None,
         min_bedrooms: int | None = None,
@@ -83,6 +85,11 @@ class ZooplaLocationAPI:
             postcode: postcode like "SW1A 1AA" or area name like "London".
             property_type: ``"sale"`` or ``"rent"``.
             building_type: PPD code ("F"/"D"/"S"/"T") or ``None`` for all.
+            new_build: switch to Zoopla's ``/new-homes/for-sale/`` index.
+                New-home listings are served from ``/new-homes/details/{id}/``
+                rather than ``/for-sale/details/{id}/`` — the scraper handles
+                both URL families transparently. Mutually exclusive with
+                ``property_type="rent"``.
             min_price / max_price: inclusive £ bounds.
             min_bedrooms / max_bedrooms: bedroom bounds.
             radius: search radius in miles.
@@ -91,7 +98,10 @@ class ZooplaLocationAPI:
         Returns:
             Absolute Zoopla URL.
         """
-        path = _PROPERTY_PATHS.get(property_type)
+        if new_build and property_type == "rent":
+            raise ValueError("new_build=True is only valid for property_type='sale'")
+        effective_property_type = "newhomes" if new_build else property_type
+        path = _PROPERTY_PATHS.get(effective_property_type)
         if path is None:
             raise ValueError(f"property_type must be 'sale' or 'rent', got {property_type!r}")
 

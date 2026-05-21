@@ -365,6 +365,7 @@ def search_rightmove(
     max_price: int | None = None,
     radius: float | None = None,
     building_type: str | None = None,
+    new_build: bool = False,
 ) -> dict:
     """Raw Rightmove search — returns dict. Used by the MCP tool and tests."""
     from statistics import median as stat_median
@@ -379,6 +380,7 @@ def search_rightmove(
         max_price=max_price,
         radius=radius,
         building_type=building_type,
+        new_build=new_build,
     )
 
     listings = fetch_listings(search_url, max_pages=1)
@@ -416,6 +418,10 @@ def rightmove_search(
         str | None,
         Field(description="Building type filter: F=flat, D=detached, S=semi, T=terraced"),
     ] = None,
+    new_build: Annotated[
+        bool,
+        Field(description="Restrict to new-builds (uses /new-homes-for-sale/ index)"),
+    ] = False,
 ) -> dict:
     """Search Rightmove property listings by postcode.
 
@@ -429,6 +435,7 @@ def rightmove_search(
         max_price=max_price,
         radius=radius,
         building_type=building_type,
+        new_build=new_build,
     )
 
 
@@ -445,6 +452,7 @@ def search_zoopla(
     max_price: int | None = None,
     radius: float | None = None,
     building_type: str | None = None,
+    new_build: bool = False,
 ) -> dict:
     """Raw Zoopla search — returns dict. Used by the MCP tool and tests.
 
@@ -464,6 +472,7 @@ def search_zoopla(
         max_price=max_price,
         radius=radius,
         building_type=building_type,
+        new_build=new_build,
     )
 
     proxy = (os.environ.get("ZOOPLA_PROXY_URL") or "").strip() or None
@@ -523,6 +532,10 @@ if _ZOOPLA_ENABLED:
             str | None,
             Field(description="Building type filter: F=flat, D=detached, S=semi, T=terraced"),
         ] = None,
+        new_build: Annotated[
+            bool,
+            Field(description="Restrict to new-builds (uses /new-homes/for-sale/ index)"),
+        ] = False,
     ) -> dict:
         """Search Zoopla property listings by postcode.
 
@@ -537,6 +550,7 @@ if _ZOOPLA_ENABLED:
             max_price=max_price,
             radius=radius,
             building_type=building_type,
+            new_build=new_build,
         )
 
 
@@ -573,6 +587,7 @@ def search_onthemarket(
     max_price: int | None = None,
     radius: float | None = None,
     building_type: str | None = None,
+    new_build: bool = False,
 ) -> dict:
     """Raw OnTheMarket search — returns dict."""
     from statistics import median as stat_median
@@ -587,6 +602,7 @@ def search_onthemarket(
         max_price=max_price,
         radius=radius,
         building_type=building_type,
+        new_build=new_build,
     )
 
     listings = fetch_onthemarket_listings(search_url, max_pages=1)
@@ -622,6 +638,10 @@ def onthemarket_search(
         str | None,
         Field(description="Building type filter: F=flat, D=detached, S=semi, T=terraced"),
     ] = None,
+    new_build: Annotated[
+        bool,
+        Field(description="Restrict to new-builds (uses /new-homes/property/ index)"),
+    ] = False,
 ) -> dict:
     """Search OnTheMarket property listings by postcode.
 
@@ -635,6 +655,7 @@ def onthemarket_search(
         max_price=max_price,
         radius=radius,
         building_type=building_type,
+        new_build=new_build,
     )
 
 
