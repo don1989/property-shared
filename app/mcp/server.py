@@ -297,6 +297,7 @@ async def rightmove_search(
     listing_type: str = "sale",
     radius: float = 0.5,
     property_type: str | None = None,
+    new_build: bool = False,
     min_bedrooms: int | None = None,
     max_price: int | None = None,
     sort_by: str | None = None,
@@ -305,7 +306,9 @@ async def rightmove_search(
     """Fetch Rightmove listings for a postcode.
 
     listing_type: "sale" or "rent". sort_by: "newest", "most_reduced",
-    "price_asc", "price_desc". Images are excluded from results.
+    "price_asc", "price_desc". new_build=True restricts results to
+    new-builds (Rightmove's dedicated /new-homes-for-sale/ index).
+    Images are excluded from results.
     """
     import anyio
     from property_core import RightmoveLocationAPI, fetch_listings
@@ -315,6 +318,7 @@ async def rightmove_search(
             postcode,
             property_type=listing_type,
             building_type=property_type,
+            new_build=new_build,
             min_bedrooms=min_bedrooms,
             max_price=max_price,
             radius=radius,
@@ -392,6 +396,7 @@ if _ZOOPLA_ENABLED:
         listing_type: str = "sale",
         radius: float | None = None,
         property_type: str | None = None,
+        new_build: bool = False,
         min_bedrooms: int | None = None,
         max_price: int | None = None,
         max_pages: int = 1,
@@ -399,8 +404,10 @@ if _ZOOPLA_ENABLED:
         """Fetch Zoopla listings for a postcode.
 
         listing_type: "sale" or "rent". property_type: F=flat, D=detached,
-        S=semi, T=terraced. Uses curl_cffi (TLS fingerprint impersonation)
-        to defeat Cloudflare; no browser required.
+        S=semi, T=terraced. new_build=True restricts to new-builds (uses
+        Zoopla's /new-homes/for-sale/ index). Uses curl_cffi (TLS
+        fingerprint impersonation) to defeat Cloudflare; no browser
+        required.
         """
         import anyio
         from property_core import ZooplaLocationAPI, fetch_zoopla_listings
@@ -409,6 +416,7 @@ if _ZOOPLA_ENABLED:
             postcode,
             property_type=listing_type,
             building_type=property_type,
+            new_build=new_build,
             min_bedrooms=min_bedrooms,
             max_price=max_price,
             radius=radius,
@@ -446,6 +454,7 @@ async def onthemarket_search(
     listing_type: str = "sale",
     radius: float | None = None,
     property_type: str | None = None,
+    new_build: bool = False,
     min_bedrooms: int | None = None,
     max_price: int | None = None,
     max_pages: int = 1,
@@ -453,7 +462,8 @@ async def onthemarket_search(
     """Fetch OnTheMarket listings for a postcode.
 
     listing_type: "sale" or "rent". property_type: F=flat, D=detached,
-    S=semi, T=terraced.
+    S=semi, T=terraced. new_build=True restricts to new-builds (uses
+    OnTheMarket's /new-homes/property/ index).
     """
     import anyio
     from property_core import OnTheMarketLocationAPI, fetch_onthemarket_listings
@@ -462,6 +472,7 @@ async def onthemarket_search(
         postcode,
         property_type=listing_type,
         building_type=property_type,
+        new_build=new_build,
         min_bedrooms=min_bedrooms,
         max_price=max_price,
         radius=radius,

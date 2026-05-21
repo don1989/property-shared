@@ -43,6 +43,7 @@ class RightmoveLocationAPI:
 
     PROPERTY_TYPES = {
         "sale": "property-for-sale",
+        "newhomes": "new-homes-for-sale",
         "rent": "property-to-rent",
     }
 
@@ -148,6 +149,7 @@ class RightmoveLocationAPI:
         station: str | None = None,
         property_type: str = "sale",
         building_type: str | None = None,
+        new_build: bool = False,
         min_price: int | None = None,
         max_price: int | None = None,
         min_bedrooms: int | None = None,
@@ -167,6 +169,12 @@ class RightmoveLocationAPI:
           to a ``STATION^N`` identifier so ``radius`` is measured from the
           station platform rather than a postcode centroid. Combine with
           ``radius=0.5`` for roughly a 10-minute walk.
+
+        ``new_build=True`` switches the search to Rightmove's dedicated
+        ``/new-homes-for-sale/`` index, which is the only reliable way to
+        restrict results to new-builds — the ``newHome=true`` query param
+        does not actually filter. Mutually exclusive with
+        ``property_type="rent"``.
         """
         if (postcode is None) == (station is None):
             raise ValueError(
@@ -191,7 +199,12 @@ class RightmoveLocationAPI:
         if radius is None and location_identifier.startswith("POSTCODE^"):
             radius = 0.25
 
-        property_path = self.PROPERTY_TYPES.get(property_type, "property-for-sale")
+        if new_build and property_type == "rent":
+            raise ValueError("new_build=True is only valid for property_type='sale'")
+        effective_property_type = "newhomes" if new_build else property_type
+        property_path = self.PROPERTY_TYPES.get(
+            effective_property_type, "property-for-sale"
+        )
         base_url = f"https://www.rightmove.co.uk/{property_path}/find.html"
 
         params: dict[str, object] = {"locationIdentifier": location_identifier}

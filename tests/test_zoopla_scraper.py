@@ -51,6 +51,37 @@ def test_url_builder_filters():
     assert "pn=2" in url
 
 
+def test_url_builder_new_build_uses_dedicated_path():
+    """new_build=True must use /new-homes/for-sale/{slug}/."""
+    url = ZooplaLocationAPI().build_search_url("SW1A 1AA", new_build=True)
+    assert url == "https://www.zoopla.co.uk/new-homes/for-sale/sw1a-1aa/"
+
+
+def test_url_builder_rejects_new_build_with_rent():
+    with pytest.raises(ValueError, match="new_build=True is only valid"):
+        ZooplaLocationAPI().build_search_url(
+            "SW1A 1AA", property_type="rent", new_build=True
+        )
+
+
+def test_scraper_parses_new_homes_details_urls():
+    """Zoopla serves new-home listings from /new-homes/details/{id}/ not
+    /for-sale/details/{id}/ — the scraper's card parser must accept both."""
+    # Minimal HTML mimicking the new-homes search card structure
+    html = """
+    <html><body>
+      <a data-testid="listing-card-content" href="/new-homes/details/72615642/">
+        <span data-testid="component-property-price">£450,000</span>
+        <address data-testid="component-property-address">5 Example Way, Nottingham, NG1 1AA</address>
+      </a>
+    </body></html>
+    """
+    listings = _parse_search_html(html)
+    assert len(listings) == 1
+    assert listings[0].id == "72615642"
+    assert "/new-homes/details/72615642/" in listings[0].url
+
+
 def test_url_builder_invalid_property_type():
     with pytest.raises(ValueError):
         ZooplaLocationAPI().build_search_url("SW1A 1AA", property_type="lease")

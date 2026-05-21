@@ -520,6 +520,7 @@ def rightmove_search_url(
     station: Optional[str] = typer.Option(None, "--station", help="Station name (e.g. 'Hitchin Station'). Anchors radius on the platform rather than a postcode centroid."),
     property_type: str = typer.Option("sale"),
     building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
+    new_build: bool = typer.Option(False, "--new-build", help="Restrict to new-build properties (uses Rightmove's /new-homes-for-sale/ index)."),
     radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
     sort_by: Optional[str] = typer.Option(None, help="newest|oldest|price_low|price_high|most_reduced"),
     api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
@@ -536,6 +537,8 @@ def rightmove_search_url(
             params["station"] = station
         if building_type:
             params["building_type"] = building_type
+        if new_build:
+            params["new_build"] = "true"
         if radius is not None:
             params["radius"] = radius
         if sort_by:
@@ -549,6 +552,7 @@ def rightmove_search_url(
             station=station,
             property_type=property_type,
             building_type=building_type,
+            new_build=new_build,
             radius=radius,
             sort_by=sort_by,
         )
@@ -658,6 +662,7 @@ def zoopla_search_url(
     postcode: list[str] = typer.Argument(..., help="Postcode or area name"),
     property_type: str = typer.Option("sale"),
     building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
+    new_build: bool = typer.Option(False, "--new-build", help="Restrict to new-build properties (uses Zoopla's /new-homes/for-sale/ index)."),
     radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
     api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
 ) -> None:
@@ -667,6 +672,8 @@ def zoopla_search_url(
         params: dict = {"postcode": postcode_value, "property_type": property_type}
         if building_type:
             params["building_type"] = building_type
+        if new_build:
+            params["new_build"] = "true"
         if radius is not None:
             params["radius"] = radius
         data = http.get("/v1/zoopla/search-url", params=params)
@@ -676,6 +683,7 @@ def zoopla_search_url(
             postcode_value,
             property_type=property_type,
             building_type=building_type,
+            new_build=new_build,
             radius=radius,
         )
         typer.echo(url)
@@ -770,6 +778,7 @@ def otm_search_url(
     postcode: list[str] = typer.Argument(..., help="Postcode, area name, or station slug (e.g. 'Hitchin Station')"),
     property_type: str = typer.Option("sale"),
     building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
+    new_build: bool = typer.Option(False, "--new-build", help="Restrict to new-build properties (uses OnTheMarket's /new-homes/property/ index)."),
     radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
     travel_duration: Optional[int] = typer.Option(None, "--travel-duration", help="Commute time in minutes (15/30/45/60 — OTM's fixed dropdown). Use with a station slug."),
     travel_type: Optional[str] = typer.Option(None, "--travel-type", help="walking|cycling|driving|public-transport (default: walking)"),
@@ -781,6 +790,8 @@ def otm_search_url(
         params: dict = {"postcode": postcode_value, "property_type": property_type}
         if building_type:
             params["building_type"] = building_type
+        if new_build:
+            params["new_build"] = "true"
         if radius is not None:
             params["radius"] = radius
         if travel_duration is not None:
@@ -794,6 +805,7 @@ def otm_search_url(
             postcode_value,
             property_type=property_type,
             building_type=building_type,
+            new_build=new_build,
             radius=radius,
             travel_duration=travel_duration,
             travel_type=travel_type,

@@ -58,6 +58,7 @@ _FALLBACK_PROFILES: tuple[str, ...] = (
 
 _DETAIL_HREF_RE = re.compile(r"^/for-sale/details/(\d+)/?")
 _DETAIL_HREF_RENT_RE = re.compile(r"^/to-rent/details/(\d+)/?")
+_DETAIL_HREF_NEWHOME_RE = re.compile(r"^/new-homes/details/(\d+)/?")
 
 _PRICE_TEXT_RE = re.compile(r"^price_priceText")
 _PRICE_TITLE_RE = re.compile(r"^price_priceTitle")
@@ -320,7 +321,11 @@ def _normalize_listing_url(url_or_id: str) -> str:
 
 def _id_from_url(url: str) -> str | None:
     parsed = urlparse(url)
-    m = _DETAIL_HREF_RE.match(parsed.path) or _DETAIL_HREF_RENT_RE.match(parsed.path)
+    m = (
+        _DETAIL_HREF_RE.match(parsed.path)
+        or _DETAIL_HREF_RENT_RE.match(parsed.path)
+        or _DETAIL_HREF_NEWHOME_RE.match(parsed.path)
+    )
     return m.group(1) if m else None
 
 
@@ -342,7 +347,11 @@ def _parse_search_html(html: str) -> List[ZooplaListing]:
 
 def _parse_card(anchor: Tag) -> Optional[ZooplaListing]:
     href = anchor.get("href") or ""
-    m = _DETAIL_HREF_RE.match(href) or _DETAIL_HREF_RENT_RE.match(href)
+    m = (
+        _DETAIL_HREF_RE.match(href)
+        or _DETAIL_HREF_RENT_RE.match(href)
+        or _DETAIL_HREF_NEWHOME_RE.match(href)
+    )
     if not m:
         return None
     listing_id = m.group(1)

@@ -52,6 +52,25 @@ def test_url_builder_invalid_property_type():
         OnTheMarketLocationAPI().build_search_url("SW1A 1AA", property_type="lease")
 
 
+def test_url_builder_new_build_uses_dedicated_path():
+    """new_build=True must switch to /new-homes/property/{slug}/."""
+    url = OnTheMarketLocationAPI().build_search_url(
+        "Hitchin Station",
+        new_build=True,
+        travel_duration=15,
+    )
+    assert "/new-homes/property/hitchin-station/" in url
+    assert "/for-sale/property/" not in url
+    assert "travel-duration=15" in url
+
+
+def test_url_builder_rejects_new_build_with_rent():
+    with pytest.raises(ValueError, match="new_build=True is only valid"):
+        OnTheMarketLocationAPI().build_search_url(
+            "London", property_type="rent", new_build=True
+        )
+
+
 def test_url_builder_station_slug_with_travel_duration():
     """Station-anchored commute search: '15 min walk from Hitchin Station'."""
     url = OnTheMarketLocationAPI().build_search_url(
