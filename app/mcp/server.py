@@ -500,6 +500,8 @@ def onthemarket_listing(
 async def newhomesforsale_search(
     county: str,
     town: str | None = None,
+    near_postcode: str | None = None,
+    max_miles: float = 1.0,
 ) -> list[dict]:
     """Fetch UK new-build developments from NewHomesForSale.co.uk.
 
@@ -512,14 +514,30 @@ async def newhomesforsale_search(
     Provide ``county`` (e.g. 'Hertfordshire'); narrow with ``town``
     (e.g. 'Hitchin') if you only want one town within the county.
     Slugs are auto-derived.
+
+    NHFS town searches can include developments well outside the
+    named town (a 'Hitchin' search returns developments up to 10mi
+    away). Set ``near_postcode`` to post-filter results by crow-flies
+    distance — results within ``max_miles`` are returned sorted by
+    distance ascending, each annotated with ``distance_to_anchor_miles``.
     """
     import anyio
-    from property_core import NewHomesForSaleLocationAPI, fetch_nhfs_listings
+    from property_core import (
+        NewHomesForSaleLocationAPI,
+        fetch_nhfs_listings,
+        filter_developments_by_distance,
+    )
     loc_api = NewHomesForSaleLocationAPI()
     search_url = loc_api.build_search_url(county=county, town=town)
     listings = await anyio.to_thread.run_sync(
         lambda: fetch_nhfs_listings(search_url, rate_limit_seconds=0)
     )
+    if near_postcode:
+        listings = await filter_developments_by_distance(
+            listings,
+            anchor_postcode=near_postcode,
+            max_miles=max_miles,
+        )
     return [_slim(l.model_dump(mode="json", exclude_none=True)) for l in listings]
 
 

@@ -28,6 +28,9 @@ from property_core.newhomesforsale_scraper import (
     fetch_listing as fetch_nhfs_listing,
     fetch_listings as fetch_nhfs_listings,
 )
+from property_core.newhomesforsale_service import (
+    filter_developments_by_distance as filter_nhfs_by_distance,
+)
 from property_core.onthemarket_location import OnTheMarketLocationAPI
 from property_core.onthemarket_scraper import (
     fetch_listing as fetch_onthemarket_listing,
@@ -920,21 +923,51 @@ def nhfs_search_url(
 @nhfs.command("listings")
 def nhfs_listings(
     search_url: str = typer.Argument(..., help="Absolute NewHomesForSale URL"),
+    near_postcode: Optional[str] = typer.Option(
+        None,
+        "--near-postcode",
+        help="UK postcode — post-filter results by crow-flies distance",
+    ),
+    max_miles: float = typer.Option(
+        1.0,
+        "--max-miles",
+        help="Distance cap (miles) when --near-postcode is set",
+    ),
     api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
 ) -> None:
     """Fetch NewHomesForSale developments for a county/town search URL."""
     http = _maybe_http_client(api_url)
     if http:
-        data = http.get("/v1/newhomesforsale/listings", params={"search_url": search_url})
+        params: dict = {"search_url": search_url}
+        if near_postcode:
+            params["near_postcode"] = near_postcode
+            params["max_miles"] = max_miles
+        data = http.get("/v1/newhomesforsale/listings", params=params)
         listings = data.get("results", [])
     else:
-        listings = [l.model_dump() for l in fetch_nhfs_listings(search_url, rate_limit_seconds=0)]
+        results = fetch_nhfs_listings(search_url, rate_limit_seconds=0)
+        if near_postcode:
+            import asyncio
+            results = asyncio.run(
+                filter_nhfs_by_distance(
+                    results,
+                    anchor_postcode=near_postcode,
+                    max_miles=max_miles,
+                )
+            )
+        listings = [l.model_dump() for l in results]
 
-    table = Table(title=f"NewHomesForSale developments ({len(listings)})")
+    title = f"NewHomesForSale developments ({len(listings)})"
+    if near_postcode:
+        title += f" within {max_miles}mi of {near_postcode.upper()}"
+
+    table = Table(title=title)
     table.add_column("Price range", justify="right")
     table.add_column("Beds")
     table.add_column("Type")
     table.add_column("Postcode")
+    if near_postcode:
+        table.add_column("From anchor", justify="right")
     table.add_column("Distance")
     table.add_column("Developer")
     table.add_column("Development")
@@ -950,15 +983,21 @@ def nhfs_listings(
         ptype = (item.get("property_type") or "—")[:30]
         dist = item.get("distance_miles")
         dist_s = f"{dist:.1f}mi" if dist is not None else "—"
-        table.add_row(
+        row = [
             price,
             beds,
             ptype,
             item.get("postcode") or "—",
+        ]
+        if near_postcode:
+            anchor_dist = item.get("distance_to_anchor_miles")
+            row.append(f"{anchor_dist:.1f}mi" if anchor_dist is not None else "—")
+        row.extend([
             dist_s,
             item.get("developer") or "—",
             item.get("name") or "—",
-        )
+        ])
+        table.add_row(*row)
     rprint(table)
     if len(listings) > 25:
         typer.echo(f"...and {len(listings) - 25} more")

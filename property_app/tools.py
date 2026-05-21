@@ -694,17 +694,33 @@ def onthemarket_listing(
 # ---------------------------------------------------------------------------
 
 
-def search_newhomesforsale(
+async def search_newhomesforsale(
     county: str,
     town: str | None = None,
+    near_postcode: str | None = None,
+    max_miles: float = 1.0,
 ) -> dict:
     """Raw NHFS search — returns dict. Used by the MCP tool and tests."""
-    from property_core import NewHomesForSaleLocationAPI, fetch_nhfs_listings
+    import anyio
+
+    from property_core import (
+        NewHomesForSaleLocationAPI,
+        fetch_nhfs_listings,
+        filter_developments_by_distance,
+    )
 
     search_url = NewHomesForSaleLocationAPI().build_search_url(
         county=county, town=town
     )
-    listings = fetch_nhfs_listings(search_url, rate_limit_seconds=0)
+    listings = await anyio.to_thread.run_sync(
+        lambda: fetch_nhfs_listings(search_url, rate_limit_seconds=0)
+    )
+    if near_postcode:
+        listings = await filter_developments_by_distance(
+            listings,
+            anchor_postcode=near_postcode,
+            max_miles=max_miles,
+        )
     return {
         "search_url": search_url,
         "count": len(listings),
@@ -717,7 +733,7 @@ def search_newhomesforsale(
     tags={"newhomesforsale", "newbuild"},
     timeout=60.0,
 )
-def newhomesforsale_search(
+async def newhomesforsale_search(
     county: Annotated[
         str,
         Field(description="UK county name or slug, e.g. 'Hertfordshire'"),
@@ -726,6 +742,25 @@ def newhomesforsale_search(
         str | None,
         Field(description="Optional town within the county, e.g. 'Hitchin'"),
     ] = None,
+    near_postcode: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional UK postcode — post-filter results to those within "
+                "``max_miles`` (crow flies), sorted by distance ascending. "
+                "Use this for 'near station' / 'near X' queries: NHFS town "
+                "searches can return developments well outside the named town."
+            )
+        ),
+    ] = None,
+    max_miles: Annotated[
+        float,
+        Field(
+            description="Distance cap in miles when ``near_postcode`` is set",
+            gt=0,
+            le=50,
+        ),
+    ] = 1.0,
 ) -> dict:
     """Fetch UK new-build developments from NewHomesForSale.co.uk.
 
@@ -734,7 +769,12 @@ def newhomesforsale_search(
     OnTheMarket / Zoopla. Each result includes postcode, bedroom
     range, price range, developer name, and the NHFS URL.
     """
-    return search_newhomesforsale(county=county, town=town)
+    return await search_newhomesforsale(
+        county=county,
+        town=town,
+        near_postcode=near_postcode,
+        max_miles=max_miles,
+    )
 
 
 def lookup_newhomesforsale_listing(url: str) -> dict:

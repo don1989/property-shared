@@ -44,6 +44,7 @@ from property_core.newhomesforsale_scraper import (
     fetch_listing as fetch_nhfs_listing,
     fetch_listings as fetch_nhfs_listings,
 )
+from property_core.newhomesforsale_service import filter_developments_by_distance
 from property_core.onthemarket_location import OnTheMarketLocationAPI
 from property_core.onthemarket_scraper import (
     fetch_listing as fetch_onthemarket_listing,
@@ -79,6 +80,7 @@ __all__ = [
     "compute_enriched_stats",
     "enrich_comps_with_epc",
     "estimate_value_range",
+    "filter_developments_by_distance",
     "fetch_listing",
     "fetch_listings",
     "fetch_nhfs_listing",
