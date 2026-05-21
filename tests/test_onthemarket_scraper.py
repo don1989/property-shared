@@ -86,6 +86,37 @@ def test_url_builder_rejects_unknown_travel_type():
         )
 
 
+def test_unknown_location_raises_typed_error():
+    """OTM returns 404 + an HTML interstitial when the slug doesn't exist;
+    the scraper must surface that as OnTheMarketLocationNotFound rather
+    than a generic 404 (or worse, an empty listing list)."""
+    from unittest.mock import MagicMock, patch
+
+    from property_core.onthemarket_scraper import (
+        OnTheMarketLocationNotFound,
+        fetch_listings,
+    )
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.text = (
+        "<html><body>"
+        "<h1>Location 'watford-metropolitan-station' not recognised</h1>"
+        "</body></html>"
+    )
+    with patch(
+        "property_core.onthemarket_scraper.Session.get",
+        return_value=mock_response,
+    ):
+        with pytest.raises(OnTheMarketLocationNotFound) as exc_info:
+            fetch_listings(
+                "https://www.onthemarket.com/for-sale/property/watford-metropolitan-station/",
+                retry_attempts=1,
+            )
+    assert exc_info.value.slug == "watford-metropolitan-station"
+    assert "watford-metropolitan-station" in str(exc_info.value)
+
+
 def test_url_builder_rejects_unsupported_travel_duration():
     """OnTheMarket's filter only accepts 15/30/45/60 — anything else
     silently returns zero results upstream, so the builder must reject it."""
