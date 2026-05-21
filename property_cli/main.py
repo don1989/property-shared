@@ -23,6 +23,11 @@ from property_core.epc_client import EPCClient
 
 from property_core.rightmove_location import RightmoveLocationAPI
 from property_core.rightmove_scraper import fetch_listing, fetch_listings
+from property_core.newhomesforsale_location import NewHomesForSaleLocationAPI
+from property_core.newhomesforsale_scraper import (
+    fetch_listing as fetch_nhfs_listing,
+    fetch_listings as fetch_nhfs_listings,
+)
 from property_core.onthemarket_location import OnTheMarketLocationAPI
 from property_core.onthemarket_scraper import (
     fetch_listing as fetch_onthemarket_listing,
@@ -886,6 +891,104 @@ def otm_listing(
     if desc:
         rprint("\n[bold]Description:[/bold]")
         rprint(desc[:1500] + ("..." if len(desc) > 1500 else ""))
+
+
+nhfs = typer.Typer(
+    help="NewHomesForSale commands (UK new-build developments aggregator)"
+)
+app.add_typer(nhfs, name="newhomesforsale")
+
+
+@nhfs.command("search-url")
+def nhfs_search_url(
+    county: str = typer.Argument(..., help="County name or slug, e.g. 'Hertfordshire'"),
+    town: Optional[str] = typer.Option(None, "--town", help="Optional town within the county, e.g. 'Hitchin'"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    http = _maybe_http_client(api_url)
+    if http:
+        params: dict = {"county": county}
+        if town:
+            params["town"] = town
+        data = http.get("/v1/newhomesforsale/search-url", params=params)
+        typer.echo(data.get("url"))
+    else:
+        url = NewHomesForSaleLocationAPI().build_search_url(county=county, town=town)
+        typer.echo(url)
+
+
+@nhfs.command("listings")
+def nhfs_listings(
+    search_url: str = typer.Argument(..., help="Absolute NewHomesForSale URL"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    """Fetch NewHomesForSale developments for a county/town search URL."""
+    http = _maybe_http_client(api_url)
+    if http:
+        data = http.get("/v1/newhomesforsale/listings", params={"search_url": search_url})
+        listings = data.get("results", [])
+    else:
+        listings = [l.model_dump() for l in fetch_nhfs_listings(search_url, rate_limit_seconds=0)]
+
+    table = Table(title=f"NewHomesForSale developments ({len(listings)})")
+    table.add_column("Price range", justify="right")
+    table.add_column("Beds")
+    table.add_column("Type")
+    table.add_column("Postcode")
+    table.add_column("Distance")
+    table.add_column("Developer")
+    table.add_column("Development")
+    for item in listings[:25]:
+        pmin, pmax = item.get("price_min"), item.get("price_max")
+        if pmin and pmax and pmin != pmax:
+            price = f"£{pmin:,} – £{pmax:,}"
+        elif pmin:
+            price = f"£{pmin:,}"
+        else:
+            price = "—"
+        beds = item.get("bedrooms_text") or "—"
+        ptype = (item.get("property_type") or "—")[:30]
+        dist = item.get("distance_miles")
+        dist_s = f"{dist:.1f}mi" if dist is not None else "—"
+        table.add_row(
+            price,
+            beds,
+            ptype,
+            item.get("postcode") or "—",
+            dist_s,
+            item.get("developer") or "—",
+            item.get("name") or "—",
+        )
+    rprint(table)
+    if len(listings) > 25:
+        typer.echo(f"...and {len(listings) - 25} more")
+
+
+@nhfs.command("listing")
+def nhfs_listing(
+    url: str = typer.Argument(..., help="Absolute NewHomesForSale development URL"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    """Fetch a NewHomesForSale development detail page (sparse — mostly og-tags)."""
+    http = _maybe_http_client(api_url)
+    if http:
+        data = http.get("/v1/newhomesforsale/listing", params={"url": url})
+        result = data.get("result", {})
+    else:
+        result = fetch_nhfs_listing(url).model_dump(mode="json", exclude_none=True)
+
+    table = Table(title=result.get("title") or "Development")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("URL", result.get("url") or url)
+    table.add_row("OG title", result.get("og_title") or "—")
+    table.add_row("Postcode", result.get("postcode") or "—")
+    table.add_row("Address", result.get("address") or "—")
+    table.add_row("OG image", result.get("og_image") or "—")
+    rprint(table)
+    desc = result.get("og_description")
+    if desc:
+        rprint(f"\n[bold]Description:[/bold] {desc}")
 
 
 planning = typer.Typer(help="Planning portal commands")

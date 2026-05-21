@@ -1,5 +1,48 @@
 # Changelog
 
+## v1.14.0 (2026-05-21)
+
+### New data source: NewHomesForSale.co.uk
+
+UK new-build developments aggregator covering ~2,600 active
+developments — including developer-direct stock that often doesn't
+reach Rightmove / OnTheMarket / Zoopla on listing day. Closes the
+"new-builds I'm missing" gap that the v1.13.0 ``new_build`` filter on
+the portal builders couldn't address.
+
+- **New module**: ``property_core.newhomesforsale_scraper`` exposes
+  ``fetch_listings(search_url)`` and ``fetch_listing(url)``. Plain
+  ``requests`` + BeautifulSoup; no Cloudflare gating; no JS.
+- **New URL builder**: ``NewHomesForSaleLocationAPI.build_search_url(
+  county=..., town=...)`` produces the slug-based search URL.
+- **New model**: ``NewHomesForSaleDevelopment`` (search-card record
+  with id, name, URL, developer, address, postcode, locality, region,
+  bedroom range, property type, price range, distance-from-search,
+  hero image, photo count). NHFS detail pages are sparse (mostly
+  enquiry forms) — the search card is the primary record.
+
+### Surface
+
+- **API**: ``GET /v1/newhomesforsale/search-url``,
+  ``GET /v1/newhomesforsale/listings``, ``GET /v1/newhomesforsale/listing``.
+- **CLI**: ``property-cli newhomesforsale search-url|listings|listing``.
+- **MCP** (both plain server and ``propertydata`` MCP App):
+  ``newhomesforsale_search``, ``newhomesforsale_listing``.
+
+### Usage
+
+```bash
+# Browse all new-build developments in a county
+property-cli newhomesforsale search-url Hertfordshire
+
+# Narrow to a town
+property-cli newhomesforsale search-url Hertfordshire --town Hitchin
+
+# Fetch and pretty-print the results
+property-cli newhomesforsale listings \
+  'https://www.newhomesforsale.co.uk/new-homes/hertfordshire/hitchin/'
+```
+
 ## v1.13.0 (2026-05-21)
 
 Merge from upstream `paulieb89/property-shared` — pulls in the MCP

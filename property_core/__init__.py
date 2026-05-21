@@ -33,8 +33,17 @@ from property_core.stamp_duty import StampDutyResult, calculate_stamp_duty
 from property_core.yield_service import calculate_yield
 from property_core.rightmove_location import RightmoveLocationAPI
 from property_core.rightmove_scraper import fetch_listing, fetch_listings
+from property_core.models.newhomesforsale import (
+    NewHomesForSaleDevelopment,
+    NewHomesForSaleDevelopmentDetail,
+)
 from property_core.models.onthemarket import OnTheMarketListing, OnTheMarketListingDetail
 from property_core.models.zoopla import ZooplaListing, ZooplaListingDetail
+from property_core.newhomesforsale_location import NewHomesForSaleLocationAPI
+from property_core.newhomesforsale_scraper import (
+    fetch_listing as fetch_nhfs_listing,
+    fetch_listings as fetch_nhfs_listings,
+)
 from property_core.onthemarket_location import OnTheMarketLocationAPI
 from property_core.onthemarket_scraper import (
     fetch_listing as fetch_onthemarket_listing,
@@ -50,6 +59,7 @@ __all__ = [
     # Services
     "CompaniesHouseClient",
     "EPCClient",
+    "NewHomesForSaleLocationAPI",
     "OnTheMarketLocationAPI",
     "PlanningService",
     "PostcodeClient",
@@ -71,6 +81,8 @@ __all__ = [
     "estimate_value_range",
     "fetch_listing",
     "fetch_listings",
+    "fetch_nhfs_listing",
+    "fetch_nhfs_listings",
     "fetch_onthemarket_listing",
     "fetch_onthemarket_listings",
     "fetch_zoopla_listing",
@@ -83,6 +95,8 @@ __all__ = [
     "CompanyRecord",
     "CompanySearchResult",
     "EPCData",
+    "NewHomesForSaleDevelopment",
+    "NewHomesForSaleDevelopmentDetail",
     "OnTheMarketListing",
     "OnTheMarketListingDetail",
     "PostcodeResult",
