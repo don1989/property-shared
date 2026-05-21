@@ -36,6 +36,10 @@ _SLUG_INVALID = re.compile(r"[^a-z0-9-]")
 
 _TRAVEL_TYPES = {"walking", "cycling", "driving", "public-transport"}
 
+# OnTheMarket's commute filter is a fixed dropdown; out-of-set values silently
+# return zero results instead of being rejected or snapped, so validate here.
+_TRAVEL_DURATIONS = frozenset({15, 30, 45, 60})
+
 
 def _to_slug(value: str) -> str:
     """Lower-case, replace whitespace with hyphens, strip other characters.
@@ -88,7 +92,10 @@ class OnTheMarketLocationAPI:
                 ``travel_duration``; OnTheMarket ignores ``radius`` when
                 ``travel-duration`` is set).
             travel_duration: commute time in minutes from the slug
-                anchor. Best paired with a station slug.
+                anchor. Best paired with a station slug. OnTheMarket
+                only honours ``15``, ``30``, ``45``, or ``60`` —
+                other values silently return zero results, so they
+                raise ``ValueError`` here.
             travel_type: ``"walking"``, ``"cycling"``, ``"driving"``, or
                 ``"public-transport"``. Defaults to ``"walking"`` when
                 ``travel_duration`` is set without a ``travel_type``.
@@ -120,8 +127,12 @@ class OnTheMarketLocationAPI:
                 f"travel_type must be one of {sorted(_TRAVEL_TYPES)}, got {travel_type!r}"
             )
         if travel_duration is not None:
-            if travel_duration <= 0:
-                raise ValueError("travel_duration must be a positive number of minutes")
+            if travel_duration not in _TRAVEL_DURATIONS:
+                raise ValueError(
+                    f"travel_duration must be one of {sorted(_TRAVEL_DURATIONS)} "
+                    f"(OnTheMarket's commute filter is a fixed dropdown), "
+                    f"got {travel_duration!r}"
+                )
             params["travel-duration"] = travel_duration
             params["travel-type"] = travel_type or "walking"
         elif travel_type is not None:

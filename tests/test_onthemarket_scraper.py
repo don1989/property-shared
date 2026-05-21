@@ -53,18 +53,18 @@ def test_url_builder_invalid_property_type():
 
 
 def test_url_builder_station_slug_with_travel_duration():
-    """Station-anchored commute search: '10 min walk from Hitchin Station'."""
+    """Station-anchored commute search: '15 min walk from Hitchin Station'."""
     url = OnTheMarketLocationAPI().build_search_url(
         "Hitchin Station",
         min_bedrooms=3,
         max_bedrooms=3,
         building_type="T",
-        travel_duration=10,
+        travel_duration=15,
     )
     assert url.startswith(
         "https://www.onthemarket.com/for-sale/property/hitchin-station/?"
     )
-    assert "travel-duration=10" in url
+    assert "travel-duration=15" in url
     assert "travel-type=walking" in url  # defaulted
     assert "min-bedrooms=3" in url
     assert "prop-types=terraced" in url
@@ -82,12 +82,18 @@ def test_url_builder_travel_type_without_duration():
 def test_url_builder_rejects_unknown_travel_type():
     with pytest.raises(ValueError, match="travel_type must be one of"):
         OnTheMarketLocationAPI().build_search_url(
-            "Hitchin Station", travel_duration=10, travel_type="teleport"
+            "Hitchin Station", travel_duration=15, travel_type="teleport"
         )
 
 
-def test_url_builder_rejects_non_positive_travel_duration():
-    with pytest.raises(ValueError, match="positive number"):
+def test_url_builder_rejects_unsupported_travel_duration():
+    """OnTheMarket's filter only accepts 15/30/45/60 — anything else
+    silently returns zero results upstream, so the builder must reject it."""
+    with pytest.raises(ValueError, match="travel_duration must be one of"):
+        OnTheMarketLocationAPI().build_search_url(
+            "Hitchin Station", travel_duration=10
+        )
+    with pytest.raises(ValueError, match="travel_duration must be one of"):
         OnTheMarketLocationAPI().build_search_url(
             "Hitchin Station", travel_duration=0
         )

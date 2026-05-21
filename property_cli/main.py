@@ -732,7 +732,7 @@ def otm_search_url(
     property_type: str = typer.Option("sale"),
     building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
     radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
-    travel_duration: Optional[int] = typer.Option(None, "--travel-duration", help="Commute time in minutes (use with a station slug)"),
+    travel_duration: Optional[int] = typer.Option(None, "--travel-duration", help="Commute time in minutes (15/30/45/60 — OTM's fixed dropdown). Use with a station slug."),
     travel_type: Optional[str] = typer.Option(None, "--travel-type", help="walking|cycling|driving|public-transport (default: walking)"),
     api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
 ) -> None:

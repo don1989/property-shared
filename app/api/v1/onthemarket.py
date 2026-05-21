@@ -30,7 +30,8 @@ async def search_url(
     max_bedrooms: Optional[int] = Query(None, ge=0),
     radius: Optional[float] = Query(None, ge=0),
     travel_duration: Optional[int] = Query(
-        None, ge=1, description="Commute time in minutes from the slug anchor (pair with a station slug like 'Hitchin Station')"
+        None,
+        description="Commute time in minutes from the slug anchor (15/30/45/60 — OTM's fixed dropdown). Pair with a station slug like 'Hitchin Station'.",
     ),
     travel_type: Optional[str] = Query(
         None, description="walking|cycling|driving|public-transport (default: walking when travel_duration is set)"
