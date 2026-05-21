@@ -50,6 +50,14 @@ class NewHomesForSaleDevelopment(BaseModel):
         default=None,
         description="Numeric distance parsed from ``distance_text`` (miles, crow flies)",
     )
+    distance_to_anchor_miles: float | None = Field(
+        default=None,
+        description=(
+            "Crow-flies distance from a caller-supplied anchor postcode (miles). "
+            "Populated only when the development was passed through "
+            "``filter_developments_by_distance``."
+        ),
+    )
     raw: dict[str, Any] | None = Field(default=None, exclude=True)
 
 

@@ -19,6 +19,7 @@ from property_core.newhomesforsale_scraper import (
     fetch_listing,
     fetch_listings,
 )
+from property_core.newhomesforsale_service import filter_developments_by_distance
 
 router = APIRouter(prefix="/newhomesforsale", tags=["newhomesforsale"])
 
@@ -41,12 +42,34 @@ async def search_url(
 @router.get("/listings", response_model=NewHomesForSaleListingsResponse)
 async def listings(
     search_url: str = Query(..., min_length=10),
+    near_postcode: Optional[str] = Query(
+        None,
+        min_length=2,
+        description=(
+            "Optional UK postcode to post-filter results by crow-flies distance. "
+            "When set, only developments within ``max_miles`` are returned, "
+            "sorted ascending by distance. NHFS county/town searches can return "
+            "developments well outside the named town."
+        ),
+    ),
+    max_miles: float = Query(
+        1.0,
+        gt=0,
+        le=50,
+        description="Distance cap in miles when ``near_postcode`` is set.",
+    ),
 ) -> NewHomesForSaleListingsResponse:
     """Fetch new-build developments from a NewHomesForSale search URL."""
     try:
         results = await anyio.to_thread.run_sync(
             partial(fetch_listings, search_url, rate_limit_seconds=0)
         )
+        if near_postcode:
+            results = await filter_developments_by_distance(
+                results,
+                anchor_postcode=near_postcode,
+                max_miles=max_miles,
+            )
         return NewHomesForSaleListingsResponse(count=len(results), results=results)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
