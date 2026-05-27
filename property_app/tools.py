@@ -395,6 +395,162 @@ def search_rightmove(
     }
 
 
+_RM_TENURE_MAP = {
+    "FREEHOLD": "freehold",
+    "LEASEHOLD": "leasehold",
+    "SHARE_OF_FREEHOLD": "share_of_freehold",
+    "SHARED_FREEHOLD": "share_of_freehold",
+}
+
+
+def _normalise_tenure(value: str | None) -> str:
+    if not value:
+        return "unknown"
+    return _RM_TENURE_MAP.get(value.upper(), value.lower())
+
+
+def _map_nearest_stations(stations: list[dict] | None) -> list[dict]:
+    if not stations:
+        return []
+    out: list[dict] = []
+    for s in stations:
+        if not isinstance(s, dict):
+            continue
+        name = s.get("name")
+        if not name:
+            continue
+        unit = (s.get("unit") or "").lower()
+        distance = s.get("distance")
+        try:
+            distance_val = float(distance) if distance is not None else None
+        except (TypeError, ValueError):
+            distance_val = None
+        if distance_val is not None and unit in ("kilometres", "km"):
+            distance_val = round(distance_val * 0.621371, 2)
+        elif distance_val is not None:
+            distance_val = round(distance_val, 2)
+        out.append({"name": name, "distance_miles": distance_val})
+    return out
+
+
+def lookup_rightmove_listing(property_id: str) -> dict:
+    """Raw Rightmove listing detail. Returns dict shaped for buyer-agent clients.
+
+    Accepts a numeric property id or a full rightmove.co.uk URL. Uses
+    ``fetch_listing`` which rotates curl_cffi profiles to defeat Cloudflare
+    fingerprinting before falling back to plain requests.
+    """
+    from property_core import fetch_listing
+    from property_core.rightmove_scraper import RightmoveError
+
+    try:
+        detail = fetch_listing(property_id)
+    except RightmoveError as exc:
+        return {"error": str(exc)}
+
+    raw_telephone: str | None = None
+    raw = detail.raw or {}
+    if isinstance(raw, dict):
+        contact_info = raw.get("contactInfo")
+        if isinstance(contact_info, dict):
+            phones = contact_info.get("telephoneNumbers")
+            if isinstance(phones, dict):
+                raw_telephone = (
+                    phones.get("localNumber")
+                    or phones.get("internationalNumber")
+                )
+        if raw_telephone is None:
+            customer = raw.get("customer")
+            if isinstance(customer, dict):
+                raw_telephone = (
+                    customer.get("contactTelephoneNumber")
+                    or customer.get("telephoneNumber")
+                )
+
+    epc_rating: str | None = None
+    epc_section = raw.get("epcRatings") if isinstance(raw, dict) else None
+    if isinstance(epc_section, dict):
+        epc_rating = (
+            epc_section.get("currentRating")
+            or epc_section.get("current")
+            or epc_section.get("rating")
+        )
+    if epc_rating is None:
+        epc_graphs = raw.get("epcGraphs") if isinstance(raw, dict) else None
+        if isinstance(epc_graphs, list):
+            for entry in epc_graphs:
+                if isinstance(entry, dict):
+                    rating = entry.get("epcRating") or entry.get("rating")
+                    if rating:
+                        epc_rating = rating
+                        break
+
+    photo_urls = list(detail.images or [])
+    floorplans = list(detail.floorplans or [])
+    floorplan_url = floorplans[0] if floorplans else None
+
+    return {
+        "id": detail.id,
+        "url": detail.url,
+        "price": detail.price,
+        "currency": detail.currency,
+        "address": detail.address,
+        "postcode": detail.postcode,
+        "latitude": detail.latitude,
+        "longitude": detail.longitude,
+        "property_type": detail.property_type,
+        "bedrooms": detail.bedrooms,
+        "bathrooms": detail.bathrooms,
+        "floor_area_sqm": detail.floor_area_sqm,
+        "floor_area_sqft": detail.floor_area_sqft,
+        "tenure": _normalise_tenure(detail.tenure_type),
+        "council_tax_band": detail.council_tax_band,
+        "ground_rent": detail.annual_ground_rent,
+        "service_charge": detail.annual_service_charge,
+        "lease_years_remaining": detail.years_remaining_on_lease,
+        "epc_rating": epc_rating,
+        "agent_name": detail.agent_name,
+        "agent_branch": detail.agent_branch,
+        "agent_telephone": raw_telephone,
+        "photo_urls": photo_urls,
+        "floorplan_url": floorplan_url,
+        "nearest_stations": _map_nearest_stations(detail.nearest_stations),
+        "description": detail.description,
+        "key_features": list(detail.key_features or []),
+        "listing_status": detail.listing_status,
+        "first_visible_date": detail.first_visible_date,
+    }
+
+
+@mcp.tool(
+    annotations={"readOnlyHint": True, "openWorldHint": True},
+    tags={"rightmove", "listings"},
+    timeout=30.0,
+)
+def rightmove_listing(
+    property_id: Annotated[
+        str,
+        Field(
+            description=(
+                "Rightmove property id (numeric, e.g. '88722216') or a full "
+                "rightmove.co.uk property URL."
+            )
+        ),
+    ],
+) -> dict:
+    """Full property detail for a single Rightmove listing.
+
+    Returns price, address, postcode, lat/lon, property type, bedrooms,
+    bathrooms, floor area, tenure (normalised lowercase), council tax band,
+    lease economics (ground rent, service charge, years remaining),
+    EPC rating where available, agent name / branch / telephone,
+    photo URLs, the first floorplan URL, nearest stations (with
+    distance in miles), description text, key features bullet list,
+    and listing status (e.g. 'SOLD_STC').
+    """
+    return lookup_rightmove_listing(property_id)
+
+
 @mcp.tool(
     annotations={"readOnlyHint": True, "openWorldHint": True},
     tags={"rightmove", "listings"},
@@ -695,22 +851,60 @@ def onthemarket_listing(
 
 
 async def search_newhomesforsale(
-    county: str,
+    county: str | None = None,
     town: str | None = None,
     near_postcode: str | None = None,
     max_miles: float = 1.0,
 ) -> dict:
-    """Raw NHFS search — returns dict. Used by the MCP tool and tests."""
+    """Raw NHFS search. Returns dict. Used by the MCP tool and tests.
+
+    ``county`` is optional. When omitted, the county is resolved from
+    ``near_postcode`` (postcodes.io) or ``town`` (Nominatim). At least one of
+    ``county``, ``near_postcode``, or ``town`` must be supplied.
+    """
     import anyio
 
     from property_core import (
         NewHomesForSaleLocationAPI,
         fetch_nhfs_listings,
         filter_developments_by_distance,
+        postcode_to_county,
+        town_to_county,
     )
 
+    resolved_county = county
+    resolved_via: str | None = None
+    if not resolved_county and near_postcode:
+        resolved_county = await anyio.to_thread.run_sync(
+            lambda: postcode_to_county(near_postcode)
+        )
+        if resolved_county:
+            resolved_via = f"postcode:{near_postcode}"
+    if not resolved_county and town:
+        resolved_county = await anyio.to_thread.run_sync(
+            lambda: town_to_county(town)
+        )
+        if resolved_county:
+            resolved_via = f"town:{town}"
+
+    if not resolved_county:
+        if not (county or near_postcode or town):
+            return {
+                "error": (
+                    "Provide one of county, near_postcode, or town. "
+                    "county is required (or derived from a postcode or town)."
+                )
+            }
+        return {
+            "error": (
+                f"Could not resolve a county from "
+                f"county={county!r}, near_postcode={near_postcode!r}, "
+                f"town={town!r}. Pass an explicit county."
+            )
+        }
+
     search_url = NewHomesForSaleLocationAPI().build_search_url(
-        county=county, town=town
+        county=resolved_county, town=town
     )
     listings = await anyio.to_thread.run_sync(
         lambda: fetch_nhfs_listings(search_url, rate_limit_seconds=0)
@@ -721,11 +915,15 @@ async def search_newhomesforsale(
             anchor_postcode=near_postcode,
             max_miles=max_miles,
         )
-    return {
+    payload = {
         "search_url": search_url,
+        "county": resolved_county,
         "count": len(listings),
         "results": [_slim(l.model_dump(mode="json", exclude_none=True)) for l in listings],
     }
+    if resolved_via:
+        payload["resolved_via"] = resolved_via
+    return payload
 
 
 @mcp.tool(
@@ -735,9 +933,16 @@ async def search_newhomesforsale(
 )
 async def newhomesforsale_search(
     county: Annotated[
-        str,
-        Field(description="UK county name or slug, e.g. 'Hertfordshire'"),
-    ],
+        str | None,
+        Field(
+            description=(
+                "UK county name or slug, e.g. 'Hertfordshire'. Optional. When "
+                "omitted, resolved from near_postcode (postcodes.io) or town "
+                "(Nominatim). At least one of county / near_postcode / town "
+                "must be supplied."
+            )
+        ),
+    ] = None,
     town: Annotated[
         str | None,
         Field(description="Optional town within the county, e.g. 'Hitchin'"),
@@ -749,7 +954,8 @@ async def newhomesforsale_search(
                 "Optional UK postcode — post-filter results to those within "
                 "``max_miles`` (crow flies), sorted by distance ascending. "
                 "Use this for 'near station' / 'near X' queries: NHFS town "
-                "searches can return developments well outside the named town."
+                "searches can return developments well outside the named town. "
+                "Also used to derive ``county`` when not provided."
             )
         ),
     ] = None,
@@ -768,6 +974,9 @@ async def newhomesforsale_search(
     developer-direct stock that often doesn't appear on Rightmove /
     OnTheMarket / Zoopla. Each result includes postcode, bedroom
     range, price range, developer name, and the NHFS URL.
+
+    Pass any of: ``county`` (direct), ``near_postcode`` (resolves to county
+    via postcodes.io), or ``town`` (resolves via Nominatim).
     """
     return await search_newhomesforsale(
         county=county,

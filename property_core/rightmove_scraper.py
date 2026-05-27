@@ -44,35 +44,118 @@ class RightmoveError(Exception):
     """Raised when Rightmove data cannot be fetched or parsed."""
 
 
+_CURL_CFFI_PROFILES: tuple[str, ...] = (
+    "chrome120",
+    "safari17_2_ios",
+    "firefox133",
+    "chrome116",
+)
+
+
 def fetch_listing(
     property_url_or_id: str,
     *,
     timeout: float = 15.0,
     retry_attempts: int = 3,
     retry_backoff: float = 1.5,
+    impersonate_profiles: tuple[str, ...] = _CURL_CFFI_PROFILES,
+    proxy: str | None = None,
 ) -> RightmoveListingDetail:
     """Fetch full property details from an individual Rightmove listing page.
+
+    Uses curl_cffi with TLS-fingerprint impersonation as the primary transport,
+    rotating through ``impersonate_profiles`` if Cloudflare challenges the first
+    profile. Falls back to plain ``requests`` if curl_cffi is not installed.
 
     Args:
         property_url_or_id: Full Rightmove URL or just the numeric property ID.
         timeout: HTTP request timeout in seconds.
-        retry_attempts: Number of retries on transient errors.
-        retry_backoff: Exponential backoff multiplier.
+        retry_attempts: Number of retries on transient errors (requests fallback).
+        retry_backoff: Exponential backoff multiplier (requests fallback).
+        impersonate_profiles: curl_cffi browser fingerprint profiles to rotate
+            through. Pass ``()`` to skip curl_cffi entirely.
+        proxy: Optional proxy URL.
 
     Returns:
         RightmoveListingDetail with all available fields from the detail page.
+
+    Raises:
+        RightmoveError: If every transport attempt fails, including a clear
+            message when Cloudflare returns a challenge.
     """
     url = _normalize_property_url(property_url_or_id)
-    session = Session()
-    response = _get_with_retries(
-        session=session,
-        url=url,
+    html = _fetch_listing_html(
+        url,
         timeout=timeout,
         retry_attempts=retry_attempts,
         retry_backoff=retry_backoff,
+        impersonate_profiles=impersonate_profiles,
+        proxy=proxy,
     )
-    property_data = _extract_page_model(response.text)
+    property_data = _extract_page_model(html)
     return RightmoveListingDetail.from_page_model(property_data, url=url)
+
+
+def _fetch_listing_html(
+    url: str,
+    *,
+    timeout: float,
+    retry_attempts: int,
+    retry_backoff: float,
+    impersonate_profiles: tuple[str, ...],
+    proxy: str | None,
+) -> str:
+    failures: list[str] = []
+
+    if impersonate_profiles:
+        try:
+            from curl_cffi import requests as cf_requests
+        except ImportError:
+            failures.append("curl_cffi: not installed")
+        else:
+            for profile in impersonate_profiles:
+                kwargs: dict[str, Any] = {"impersonate": profile}
+                if proxy:
+                    kwargs["proxies"] = {"http": proxy, "https": proxy}
+                try:
+                    session = cf_requests.Session(**kwargs)
+                    resp = session.get(url, timeout=timeout)
+                except Exception as exc:  # noqa: BLE001
+                    failures.append(f"{profile}: request error: {exc}")
+                    continue
+                status = getattr(resp, "status_code", 0)
+                text = getattr(resp, "text", "") or ""
+                if status == 403 or "Just a moment" in text[:5000]:
+                    failures.append(f"{profile}: Cloudflare challenge (status {status})")
+                    continue
+                if status >= 400:
+                    failures.append(f"{profile}: status {status}")
+                    continue
+                return text
+
+    try:
+        session = Session()
+        response = _get_with_retries(
+            session=session,
+            url=url,
+            timeout=timeout,
+            retry_attempts=retry_attempts,
+            retry_backoff=retry_backoff,
+        )
+        if "Just a moment" in response.text[:5000]:
+            raise RightmoveError(
+                f"Rightmove returned a Cloudflare challenge for {url}. "
+                "Tried profiles: " + "; ".join(failures) if failures else
+                f"Rightmove returned a Cloudflare challenge for {url}."
+            )
+        return response.text
+    except RightmoveError as exc:
+        if failures:
+            raise RightmoveError(
+                f"Could not fetch {url}. curl_cffi attempts: {'; '.join(failures)}. "
+                f"Requests fallback: {exc}"
+            ) from exc
+        raise
 
 
 def fetch_listings(
