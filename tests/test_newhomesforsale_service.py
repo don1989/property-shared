@@ -130,12 +130,40 @@ async def test_filter_drops_ungeocodable_dev_postcode() -> None:
 
 @pytest.mark.anyio
 async def test_filter_raises_on_unknown_anchor() -> None:
+    from unittest.mock import patch
+
     client = _StubPostcodeClient(single={}, bulk={})
     devs = [_dev("1", "Anything", "SG5 1AB")]
-    with pytest.raises(ValueError, match="[Aa]nchor postcode"):
-        await filter_developments_by_distance(
-            devs, anchor_postcode="ZZ9 9ZZ", max_miles=1.0, client=client
+    with patch(
+        "property_core.location_resolution.outcode_latlon", return_value=None
+    ):
+        with pytest.raises(ValueError, match="[Aa]nchor postcode"):
+            await filter_developments_by_distance(
+                devs, anchor_postcode="ZZ9 9ZZ", max_miles=1.0, client=client
+            )
+
+
+@pytest.mark.anyio
+async def test_filter_falls_back_to_outcode_for_partial_postcode() -> None:
+    """Partial postcodes like 'HP4' geocode via the outcode endpoint."""
+    from unittest.mock import patch
+
+    dev_result = _result("HP4 2AB", 51.7600, -0.5635)
+    client = _StubPostcodeClient(
+        single={"HP4": None},
+        bulk={"HP42AB": dev_result},
+    )
+    devs = [_dev("1", "Near Berko", "HP4 2AB")]
+    with patch(
+        "property_core.location_resolution.outcode_latlon",
+        return_value=(51.7596, -0.5631),
+    ) as mock_outcode:
+        kept = await filter_developments_by_distance(
+            devs, anchor_postcode="HP4", max_miles=2.0, client=client
         )
+    assert len(kept) == 1
+    assert kept[0].id == "1"
+    mock_outcode.assert_called_once_with("HP4")
 
 
 @pytest.mark.anyio

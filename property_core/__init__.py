@@ -45,7 +45,11 @@ from property_core.newhomesforsale_scraper import (
     fetch_listings as fetch_nhfs_listings,
 )
 from property_core.newhomesforsale_service import filter_developments_by_distance
-from property_core.location_resolution import postcode_to_county, town_to_county
+from property_core.location_resolution import (
+    outcode_latlon,
+    postcode_to_county,
+    town_to_county,
+)
 from property_core.onthemarket_location import OnTheMarketLocationAPI
 from property_core.onthemarket_scraper import (
     fetch_listing as fetch_onthemarket_listing,
@@ -92,6 +96,7 @@ __all__ = [
     "fetch_zoopla_listings",
     "generate_insights",
     "match_epc_address",
+    "outcode_latlon",
     "postcode_to_county",
     "town_to_county",
     # Models

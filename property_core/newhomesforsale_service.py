@@ -79,7 +79,18 @@ async def filter_developments_by_distance(
     client = client or PostcodeClient()
 
     anchor = await asyncio.to_thread(client.lookup, anchor_postcode)
-    if anchor is None or anchor.latitude is None or anchor.longitude is None:
+    anchor_lat: float | None = anchor.latitude if anchor else None
+    anchor_lon: float | None = anchor.longitude if anchor else None
+    if anchor_lat is None or anchor_lon is None:
+        # Fall back to the outcode centroid for partial postcodes (e.g. "HP4")
+        # or full postcodes the per-postcode endpoint doesn't recognise.
+        from property_core.location_resolution import outcode_latlon
+
+        outcode_result = await asyncio.to_thread(outcode_latlon, anchor_postcode)
+        if outcode_result is not None:
+            anchor_lat, anchor_lon = outcode_result
+
+    if anchor_lat is None or anchor_lon is None:
         raise ValueError(
             f"Anchor postcode {anchor_postcode!r} could not be geocoded"
         )
@@ -110,7 +121,7 @@ async def filter_developments_by_distance(
             )
             continue
         distance = _haversine_miles(
-            anchor.latitude, anchor.longitude, result.latitude, result.longitude
+            anchor_lat, anchor_lon, result.latitude, result.longitude
         )
         if distance <= max_miles:
             dev.distance_to_anchor_miles = round(distance, 2)

@@ -33,6 +33,7 @@ _OUTCODE_RE = re.compile(r"^[A-Z]{1,2}[0-9][A-Z0-9]?$")
 
 _postcode_to_county_cache: dict[str, Optional[str]] = {}
 _town_to_county_cache: dict[str, Optional[str]] = {}
+_outcode_latlon_cache: dict[str, Optional[tuple[float, float]]] = {}
 
 _NOMINATIM_BASE = "https://nominatim.openstreetmap.org"
 _NOMINATIM_USER_AGENT = (
@@ -87,6 +88,45 @@ def postcode_to_county(postcode: str, *, timeout: float = 10.0) -> Optional[str]
 
     _postcode_to_county_cache[key] = county
     return county
+
+
+def outcode_latlon(value: str, *, timeout: float = 10.0) -> Optional[tuple[float, float]]:
+    """Return the centroid (latitude, longitude) of a UK outcode.
+
+    Accepts a full postcode (the outcode portion is used) or an outcode like
+    ``"HP4"``. Returns ``None`` when the outcode is unknown or upstream is
+    unavailable. Results are cached in-process.
+    """
+    if not value or not value.strip():
+        return None
+    normalised = _normalise_postcode(value)
+    if _looks_like_full_postcode(normalised):
+        outcode = normalised[:-3] if len(normalised) > 3 else normalised
+    else:
+        outcode = normalised
+    if outcode in _outcode_latlon_cache:
+        return _outcode_latlon_cache[outcode]
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(f"https://api.postcodes.io/outcodes/{outcode}")
+            if resp.status_code == 404:
+                _outcode_latlon_cache[outcode] = None
+                return None
+            resp.raise_for_status()
+            data = resp.json().get("result")
+    except httpx.HTTPError:
+        return None
+    if not isinstance(data, dict):
+        _outcode_latlon_cache[outcode] = None
+        return None
+    lat = data.get("latitude")
+    lon = data.get("longitude")
+    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+        result = (float(lat), float(lon))
+        _outcode_latlon_cache[outcode] = result
+        return result
+    _outcode_latlon_cache[outcode] = None
+    return None
 
 
 def _lookup_outcode(outcode: str, *, timeout: float) -> Optional[str]:

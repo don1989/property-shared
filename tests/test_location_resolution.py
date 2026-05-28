@@ -13,6 +13,7 @@ from property_core.models.postcode import PostcodeResult
 def _clear_caches() -> None:
     location_resolution._postcode_to_county_cache.clear()
     location_resolution._town_to_county_cache.clear()
+    location_resolution._outcode_latlon_cache.clear()
 
 
 def test_postcode_to_county_prefers_admin_county() -> None:
@@ -174,6 +175,55 @@ def test_town_to_county_returns_none_on_no_gb_match() -> None:
         county = town_to_county("Nowhere")
 
     assert county is None
+
+
+def test_outcode_latlon_returns_centroid_for_outcode() -> None:
+    _clear_caches()
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "result": {
+            "outcode": "HP4",
+            "latitude": 51.7596,
+            "longitude": -0.5631,
+        }
+    }
+    mock_resp.raise_for_status.return_value = None
+    with patch("property_core.location_resolution.httpx.Client") as mock_client_cls:
+        ctx = MagicMock()
+        ctx.get.return_value = mock_resp
+        mock_client_cls.return_value.__enter__.return_value = ctx
+        latlon = location_resolution.outcode_latlon("HP4")
+    assert latlon == (51.7596, -0.5631)
+
+
+def test_outcode_latlon_strips_inward_code_from_full_postcode() -> None:
+    _clear_caches()
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "result": {"latitude": 51.5, "longitude": -0.1}
+    }
+    mock_resp.raise_for_status.return_value = None
+    with patch("property_core.location_resolution.httpx.Client") as mock_client_cls:
+        ctx = MagicMock()
+        ctx.get.return_value = mock_resp
+        mock_client_cls.return_value.__enter__.return_value = ctx
+        latlon = location_resolution.outcode_latlon("SW1A 1AA")
+    assert latlon == (51.5, -0.1)
+    assert "/outcodes/SW1A" in ctx.get.call_args[0][0]
+
+
+def test_outcode_latlon_returns_none_for_unknown_outcode() -> None:
+    _clear_caches()
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 404
+    with patch("property_core.location_resolution.httpx.Client") as mock_client_cls:
+        ctx = MagicMock()
+        ctx.get.return_value = mock_resp
+        mock_client_cls.return_value.__enter__.return_value = ctx
+        latlon = location_resolution.outcode_latlon("ZZ99")
+    assert latlon is None
 
 
 def test_town_to_county_returns_none_on_http_error() -> None:
