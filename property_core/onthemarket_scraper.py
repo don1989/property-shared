@@ -67,6 +67,9 @@ _LOCATION_NOT_RECOGNISED_RE = re.compile(
 _DATALAYER_RE = re.compile(
     r"dataLayer\.push\s*\(\s*(\{.*?\})\s*\)\s*;?", re.DOTALL
 )
+_NEXT_DATA_RE = re.compile(
+    r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL
+)
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +403,7 @@ def _parse_detail_html(
     soup = BeautifulSoup(html, "html.parser")
 
     data_layer = _extract_data_layer(html)
+    next_data_property = _extract_next_data_property(html)
 
     title = _text_or_none(soup.h1)
 
@@ -423,6 +427,8 @@ def _parse_detail_html(
     if data_layer.get("price"):
         display_price = f"£{data_layer['price']}"
 
+    # Hero-images fallback for pages without __NEXT_DATA__; the model picks
+    # the richer NEXT_DATA gallery when available.
     images: list[str] = []
     hero = soup.find(attrs={"data-component": "hero-images"})
     if hero is not None:
@@ -445,7 +451,102 @@ def _parse_detail_html(
         display_price=display_price,
         images=images,
         key_information=key_information,
+        next_data_property=next_data_property,
     )
+
+
+_OTM_TENURE_MAP = {
+    "FREEHOLD": "freehold",
+    "LEASEHOLD": "leasehold",
+    "SHARE OF FREEHOLD": "share_of_freehold",
+    "SHARE-OF-FREEHOLD": "share_of_freehold",
+    "SHARED FREEHOLD": "share_of_freehold",
+    "COMMONHOLD": "leasehold",
+}
+
+
+def normalise_tenure(value: str | None) -> str:
+    """Map OnTheMarket's raw tenure string to the canonical four-value enum.
+
+    OnTheMarket renders tenure as free text (e.g. "Leasehold | 108 yrs left",
+    "Freehold", "Share of Freehold", "Non traditional", "Commonhold"). This
+    collapses each to ``"freehold" | "leasehold" | "share_of_freehold" |
+    "unknown"`` so consumers can switch on it without re-parsing.
+    """
+    if not value:
+        return "unknown"
+    head = value.split("|")[0].strip().upper()
+    if head in _OTM_TENURE_MAP:
+        return _OTM_TENURE_MAP[head]
+    if "FREEHOLD" in head:
+        return "freehold"
+    if "LEASEHOLD" in head:
+        return "leasehold"
+    return "unknown"
+
+
+def to_canonical_listing(detail: OnTheMarketListingDetail) -> Dict[str, Any]:
+    """Convert an OnTheMarketListingDetail to the buyer-agent canonical dict.
+
+    Mirrors the rightmove_listing tool's output schema so downstream
+    consumers can merge listings from either source without remapping.
+    """
+    photo_urls = list(detail.images or [])
+    floorplans = list(detail.floorplans or [])
+    return {
+        "id": detail.id,
+        "url": detail.url,
+        "price": detail.price,
+        "currency": "GBP",
+        "address": detail.address or detail.addressline_2,
+        "postcode": detail.postcode,
+        "latitude": detail.latitude,
+        "longitude": detail.longitude,
+        "property_type": detail.property_type,
+        "bedrooms": detail.bedrooms,
+        "bathrooms": detail.bathrooms,
+        "floor_area_sqm": detail.floor_area_sqm,
+        "floor_area_sqft": detail.floor_area_sqft,
+        "tenure": normalise_tenure(detail.tenure),
+        "council_tax_band": detail.council_tax_band,
+        "ground_rent": detail.annual_ground_rent,
+        "service_charge": detail.annual_service_charge,
+        "lease_years_remaining": detail.years_remaining_on_lease,
+        "epc_rating": detail.epc_rating,
+        "agent_name": detail.agent_name,
+        "agent_branch": detail.agent_branch,
+        "agent_telephone": detail.agent_telephone,
+        "photo_urls": photo_urls,
+        "floorplan_url": floorplans[0] if floorplans else None,
+        "nearest_stations": list(detail.nearest_stations or []),
+        "description": detail.description,
+        "key_features": list(detail.key_features or []),
+        "listing_status": detail.listing_status,
+        "first_visible_date": detail.first_visible_date,
+    }
+
+
+def _extract_next_data_property(html: str) -> Optional[Dict[str, Any]]:
+    """Return ``initialReduxState.property`` from the page's ``__NEXT_DATA__``.
+
+    The property dict carries the canonical detail: full gallery URLs,
+    floorplan URLs, nearest stations with distances, lat/lon, floor area
+    in sqft and sqm, agent contact info, and the EPC rating. Returns
+    ``None`` when the script tag or expected payload structure is absent.
+    """
+    match = _NEXT_DATA_RE.search(html)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    try:
+        state = payload["props"]["initialReduxState"]
+    except (KeyError, TypeError):
+        return None
+    prop = state.get("property") if isinstance(state, dict) else None
+    return prop if isinstance(prop, dict) else None
 
 
 def _extract_data_layer(html: str) -> Dict[str, Any]:

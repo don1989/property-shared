@@ -488,12 +488,28 @@ def onthemarket_listing(
     property_url_or_id: str,
     include_images: bool = False,
 ) -> dict:
-    """Full detail for a single OnTheMarket listing (URL or numeric ID)."""
-    from property_core import fetch_onthemarket_listing
-    result = fetch_onthemarket_listing(property_url_or_id)
-    if include_images:
-        return result.model_dump(mode="json", exclude_none=True)
-    return _slim(result.model_dump(mode="json", exclude_none=True))
+    """Full detail for a single OnTheMarket listing (URL or numeric ID).
+
+    Returns the same canonical shape as rightmove_listing (normalised
+    tenure, photo_urls, floorplan_url, nearest_stations in miles, agent
+    contact info, EPC rating). include_images=False (default) drops the
+    photo_urls array for token-budgeted callers.
+    """
+    from property_core.onthemarket_scraper import (
+        OnTheMarketError,
+        fetch_listing as _fetch_otm,
+        to_canonical_listing,
+    )
+
+    try:
+        detail = _fetch_otm(property_url_or_id)
+    except OnTheMarketError as exc:
+        return {"error": str(exc)}
+
+    payload = to_canonical_listing(detail)
+    if not include_images:
+        payload = {k: v for k, v in payload.items() if k != "photo_urls"}
+    return payload
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})

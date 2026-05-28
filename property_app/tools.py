@@ -816,11 +816,24 @@ def onthemarket_search(
 
 
 def lookup_onthemarket_listing(property_id: str) -> dict:
-    """Raw OnTheMarket listing detail — returns dict."""
-    from property_core import fetch_onthemarket_listing
+    """Raw OnTheMarket listing detail. Returns the buyer-agent canonical shape.
 
-    listing = fetch_onthemarket_listing(property_id)
-    return _slim(listing.model_dump(mode="json"))
+    Mirrors lookup_rightmove_listing: normalised tenure, photo_urls,
+    floorplan_url, nearest_stations with miles, ground_rent, service_charge,
+    lease_years_remaining, agent_telephone, epc_rating.
+    """
+    from property_core import fetch_onthemarket_listing
+    from property_core.onthemarket_scraper import (
+        OnTheMarketError,
+        to_canonical_listing,
+    )
+
+    try:
+        detail = fetch_onthemarket_listing(property_id)
+    except OnTheMarketError as exc:
+        return {"error": str(exc)}
+
+    return to_canonical_listing(detail)
 
 
 @mcp.tool(

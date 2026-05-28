@@ -284,7 +284,9 @@ def test_parse_detail_html_full():
     assert detail.addressline_2 == "Buckingham Palace Road"
     assert detail.channel == "sale"
     assert detail.status == "live"
-    assert detail.property_type == "homes"
+    # property_type now prefers the human-readable NEXT_DATA value
+    # ("Flat") over the dataLayer category ("homes").
+    assert detail.property_type == "Flat"
     assert detail.trans_type_id == "resale"
     assert detail.branch_id == 73949
     assert detail.tenure == "Leasehold"
@@ -295,6 +297,23 @@ def test_parse_detail_html_full():
     assert detail.images and len(detail.images) >= 3
     assert detail.parent_locations == ["uk", "england", "south-east"]
     assert detail.description and "two bedroom" in detail.description.lower()
+    # NEXT_DATA enrichment
+    assert detail.bedrooms == 2
+    assert detail.bathrooms == 2
+    assert detail.floor_area_sqft == 1062
+    assert detail.floor_area_sqm == 99
+    assert detail.latitude == 51.498742
+    assert detail.longitude == -0.143732
+    assert detail.address == "Buckingham Palace Road, Victoria, London, SW1W"
+    assert detail.agent_name == "John D Wood & Co"
+    assert detail.agent_branch == "John D Wood & Co - Belgravia"
+    assert detail.agent_telephone == "020 3007 7116"
+    assert detail.epc_rating == "C"
+    assert detail.floorplans and len(detail.floorplans) >= 1
+    assert detail.nearest_stations and len(detail.nearest_stations) >= 1
+    first = detail.nearest_stations[0]
+    assert "Victoria" in first["name"]
+    assert first["distance_miles"] == 0.2
 
 
 # ---------------------------------------------------------------------------
