@@ -498,11 +498,11 @@ def onthemarket_listing(
 
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
 async def newhomesforsale_search(
-    county: str,
+    county: str | None = None,
     town: str | None = None,
     near_postcode: str | None = None,
     max_miles: float = 1.0,
-) -> list[dict]:
+) -> dict:
     """Fetch UK new-build developments from NewHomesForSale.co.uk.
 
     NewHomesForSale aggregates ~2,600 UK new-build developments
@@ -511,8 +511,10 @@ async def newhomesforsale_search(
     postcode, bedroom range, price range, developer name, and the
     URL on NHFS for follow-up.
 
-    Provide ``county`` (e.g. 'Hertfordshire'); narrow with ``town``
-    (e.g. 'Hitchin') if you only want one town within the county.
+    ``county`` is optional — when omitted, the county is resolved from
+    ``near_postcode`` (postcodes.io) or ``town`` (Nominatim). At least
+    one of county / near_postcode / town must be supplied. Narrow with
+    ``town`` (e.g. 'Hitchin') if you only want one town within the county.
     Slugs are auto-derived.
 
     NHFS town searches can include developments well outside the
@@ -526,9 +528,43 @@ async def newhomesforsale_search(
         NewHomesForSaleLocationAPI,
         fetch_nhfs_listings,
         filter_developments_by_distance,
+        postcode_to_county,
+        town_to_county,
     )
+
+    resolved_county = county
+    resolved_via: str | None = None
+    if not resolved_county and near_postcode:
+        resolved_county = await anyio.to_thread.run_sync(
+            lambda: postcode_to_county(near_postcode)
+        )
+        if resolved_county:
+            resolved_via = f"postcode:{near_postcode}"
+    if not resolved_county and town:
+        resolved_county = await anyio.to_thread.run_sync(
+            lambda: town_to_county(town)
+        )
+        if resolved_county:
+            resolved_via = f"town:{town}"
+
+    if not resolved_county:
+        if not (county or near_postcode or town):
+            return {
+                "error": (
+                    "Provide one of county, near_postcode, or town. "
+                    "county is required (or derived from a postcode or town)."
+                )
+            }
+        return {
+            "error": (
+                f"Could not resolve a county from "
+                f"county={county!r}, near_postcode={near_postcode!r}, "
+                f"town={town!r}. Pass an explicit county."
+            )
+        }
+
     loc_api = NewHomesForSaleLocationAPI()
-    search_url = loc_api.build_search_url(county=county, town=town)
+    search_url = loc_api.build_search_url(county=resolved_county, town=town)
     listings = await anyio.to_thread.run_sync(
         lambda: fetch_nhfs_listings(search_url, rate_limit_seconds=0)
     )
@@ -538,7 +574,15 @@ async def newhomesforsale_search(
             anchor_postcode=near_postcode,
             max_miles=max_miles,
         )
-    return [_slim(l.model_dump(mode="json", exclude_none=True)) for l in listings]
+    payload: dict = {
+        "search_url": search_url,
+        "county": resolved_county,
+        "count": len(listings),
+        "results": [_slim(l.model_dump(mode="json", exclude_none=True)) for l in listings],
+    }
+    if resolved_via:
+        payload["resolved_via"] = resolved_via
+    return payload
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
