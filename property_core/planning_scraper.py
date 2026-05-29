@@ -662,6 +662,15 @@ def probe_connectivity(
             browser.close()
 
     except Exception as e:
+        # Top-level swallow: the scrape result records the error rather than
+        # raising, so report it to Sentry explicitly. Lazy import; no-op when
+        # Sentry isn't initialised.
+        try:
+            import sentry_sdk
+
+            sentry_sdk.capture_exception(e)
+        except Exception:  # pragma: no cover
+            pass
         result["error"] = str(e)
         result["load_time_ms"] = int((time.time() - start) * 1000)
         if "timeout" in str(e).lower():

@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from importlib.metadata import version as _pkg_version
 from typing import Any
@@ -5,6 +6,23 @@ from typing import Any
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Receive, Scope, Send
 import uvicorn
+
+# Initialise Sentry as early as possible — before create_app() runs below — so
+# the sentry-sdk FastAPI/Starlette integration (auto-enabled when fastapi is
+# installed) instruments request handlers and reports unhandled exceptions in
+# API routes and MCP tool calls. Fully gated on SENTRY_DSN: when it's unset
+# this is a complete no-op, leaving dev / test / CI untouched. The DSN is never
+# hardcoded — it's injected via the environment (set in Coolify per app).
+_sentry_dsn = os.environ.get("SENTRY_DSN")
+if _sentry_dsn:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.environ.get("SENTRY_ENV", "production"),
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+    )
 
 from app.api.routes import api_router
 from app.core.config import get_settings

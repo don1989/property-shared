@@ -33,6 +33,25 @@ from property_core.rightmove_scraper import fetch_listings
 
 
 
+def _report_exception(exc: BaseException) -> None:
+    """Forward a swallowed exception to Sentry.
+
+    Each per-source fetch below catches broadly and returns a
+    ``{"success": False, "error": ...}`` dict so one failing source doesn't
+    sink the whole report — which means the error never bubbles up to Sentry's
+    request integration. Reporting it here keeps that resilient behaviour while
+    still surfacing the failure. Lazy import; ``capture_exception`` is a no-op
+    when Sentry isn't initialised (e.g. SENTRY_DSN unset, or property_core used
+    as a standalone library).
+    """
+    try:
+        import sentry_sdk
+
+        sentry_sdk.capture_exception(exc)
+    except Exception:  # pragma: no cover - never let reporting break the caller
+        pass
+
+
 def _get_postcode_sector(postcode: str) -> str:
     """Extract sector from postcode (e.g., 'SW1A 1' from 'SW1A 1AA')."""
     parts = postcode.split()
@@ -280,6 +299,7 @@ class PropertyReportService:
                 "transaction_count": result.count,
             }
         except Exception as e:
+            _report_exception(e)
             return {"success": False, "error": str(e)}
 
     async def _fetch_epc_data(
@@ -333,6 +353,7 @@ class PropertyReportService:
 
             return {"success": True, "energy_performance": energy}
         except Exception as e:
+            _report_exception(e)
             return {"success": False, "configured": True, "error": str(e)}
 
     async def _fetch_rental_data(
@@ -352,6 +373,7 @@ class PropertyReportService:
                 "rental_analysis": rental,
             }
         except Exception as e:
+            _report_exception(e)
             return {"success": False, "error": str(e)}
 
     async def _fetch_sales_market(
@@ -412,5 +434,6 @@ class PropertyReportService:
                 "current_market": market,
             }
         except Exception as e:
+            _report_exception(e)
             return {"success": False, "error": str(e)}
 

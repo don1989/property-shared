@@ -308,6 +308,24 @@ def main() -> None:
     import uvicorn
     from fastmcp.server.http import create_streamable_http_app
 
+    # Initialise Sentry before the FastMCP/Starlette app is built below, so the
+    # sentry-sdk Starlette integration (auto-enabled when starlette is present)
+    # instruments tool-call request handling. This mirrors app/main.py — the
+    # Property MCP app uses this entrypoint (Dockerfile.app -> `property-app`)
+    # rather than app.main:app, so it needs its own gated init for SENTRY_DSN to
+    # take effect here. Fully gated on SENTRY_DSN: a no-op when unset. DSN is
+    # never hardcoded — injected via the environment (set in Coolify per app).
+    _sentry_dsn = os.environ.get("SENTRY_DSN")
+    if _sentry_dsn:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            environment=os.environ.get("SENTRY_ENV", "production"),
+            traces_sample_rate=0.1,
+            send_default_pii=False,
+        )
+
     # Import tool/dashboard modules so they register on mcp/app
     from property_app import tools  # noqa: F401
     from property_app.dashboards import comps, listings, rental, unified, yield_view  # noqa: F401
