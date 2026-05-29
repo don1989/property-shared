@@ -446,6 +446,12 @@ def lookup_rightmove_listing(property_id: str) -> dict:
     try:
         detail = fetch_listing(property_id)
     except RightmoveError as exc:
+        # This tool swallows scraper errors into an {"error": ...} dict rather
+        # than letting them bubble up, so report it explicitly. Lazy import;
+        # capture_exception is a no-op when Sentry isn't initialised.
+        import sentry_sdk
+
+        sentry_sdk.capture_exception(exc)
         return {"error": str(exc)}
 
     raw_telephone: str | None = None

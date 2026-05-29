@@ -46,6 +46,10 @@ dependencies = [
   # fingerprint so plain requests can get past Cloudflare's bot mode.
   # Used by the Zoopla scraper. ~10MB precompiled wheels.
   "curl_cffi>=0.7,<1",
+  # Error reporting. Fully gated on the SENTRY_DSN env var (see app/main.py):
+  # a complete no-op when unset, so dev/test/CI are unaffected. The [fastapi]
+  # extra auto-instruments FastAPI/Starlette request handlers once init runs.
+  "sentry-sdk[fastapi]==2.61.0",
 ]
 
 [project.optional-dependencies]
