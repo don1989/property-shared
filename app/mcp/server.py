@@ -448,6 +448,14 @@ if _ZOOPLA_ENABLED:
         return _slim(result.model_dump(mode="json", exclude_none=True))
 
 
+def _otm_search_dict(listing) -> dict:
+    """Slim an OnTheMarket search card and re-expose photos as ``photo_urls``
+    (matching the detail tool / Rightmove shape)."""
+    data = _slim(listing.model_dump(mode="json", exclude_none=True))
+    data["photo_urls"] = list(listing.images or [])
+    return data
+
+
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
 async def onthemarket_search(
     postcode: str,
@@ -480,7 +488,7 @@ async def onthemarket_search(
     listings = await anyio.to_thread.run_sync(
         lambda: fetch_onthemarket_listings(search_url, max_pages=max_pages)
     )
-    return [_slim(l.model_dump(mode="json", exclude_none=True)) for l in listings]
+    return [_otm_search_dict(l) for l in listings]
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
@@ -488,12 +496,20 @@ def onthemarket_listing(
     property_url_or_id: str,
     include_images: bool = False,
 ) -> dict:
-    """Full detail for a single OnTheMarket listing (URL or numeric ID)."""
+    """Full detail for a single OnTheMarket listing (URL or numeric ID).
+
+    Always returns ``photo_urls`` (the property photo gallery, mirroring the
+    Rightmove tool's shape). include_images=True additionally keeps the bulky
+    raw ``images`` field.
+    """
     from property_core import fetch_onthemarket_listing
     result = fetch_onthemarket_listing(property_url_or_id)
     if include_images:
-        return result.model_dump(mode="json", exclude_none=True)
-    return _slim(result.model_dump(mode="json", exclude_none=True))
+        data = result.model_dump(mode="json", exclude_none=True)
+    else:
+        data = _slim(result.model_dump(mode="json", exclude_none=True))
+    data["photo_urls"] = list(result.images or [])
+    return data
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})

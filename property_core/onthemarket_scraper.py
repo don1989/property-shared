@@ -67,6 +67,12 @@ _LOCATION_NOT_RECOGNISED_RE = re.compile(
 _DATALAYER_RE = re.compile(
     r"dataLayer\.push\s*\(\s*(\{.*?\})\s*\)\s*;?", re.DOTALL
 )
+_NEXT_DATA_RE = re.compile(
+    r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL
+)
+# Tokens that mark a media URL as something other than a property photo —
+# floor plans and the EPC graph live in the same image arrays as photos.
+_NON_PHOTO_TOKENS = ("epc-graph", "floor-plan", "floorplan")
 
 
 # ---------------------------------------------------------------------------
@@ -423,15 +429,7 @@ def _parse_detail_html(
     if data_layer.get("price"):
         display_price = f"£{data_layer['price']}"
 
-    images: list[str] = []
-    hero = soup.find(attrs={"data-component": "hero-images"})
-    if hero is not None:
-        seen: set[str] = set()
-        for im in hero.find_all("img"):
-            src = im.get("src") or ""
-            if src and src not in seen:
-                seen.add(src)
-                images.append(src)
+    images = _extract_detail_images(html, soup)
 
     key_information = _extract_key_information(soup)
 
@@ -463,6 +461,101 @@ def _extract_data_layer(html: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             continue
     return {}
+
+
+def _extract_detail_images(html: str, soup: BeautifulSoup) -> List[str]:
+    """Return property-photo URLs for a listing detail page.
+
+    Tries, in order, preferring the fullest gallery available:
+      1. The ``__NEXT_DATA__`` redux blob's
+         ``props.initialReduxState.property.images`` array — the full gallery.
+      2. The ``<div data-component='hero-images'>`` DOM section — the visible
+         subset (typically the first few images).
+      3. The ``og:image`` meta tag — a single hero image.
+
+    EPC graphs and floor plans are filtered out. URLs are deduped (order
+    preserved) and restricted to absolute ``https://`` URLs. Returns ``[]``
+    on any parse failure rather than raising — markup drift degrades to an
+    empty gallery, never a crash.
+    """
+    images = _images_from_next_data(html)
+    if not images:
+        images = _images_from_hero(soup)
+    if not images:
+        images = _images_from_og_image(soup)
+    return _clean_image_urls(images)
+
+
+def _images_from_next_data(html: str) -> List[str]:
+    """Pull the full gallery from the ``__NEXT_DATA__`` redux state.
+
+    Each image entry carries a high-res ``largeUrl`` (falling back to the
+    thumbnail ``url``) and an ``isImage`` flag.
+    """
+    match = _NEXT_DATA_RE.search(html)
+    if not match:
+        return []
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return []
+    try:
+        items = data["props"]["initialReduxState"]["property"]["images"]
+    except (KeyError, TypeError):
+        return []
+    if not isinstance(items, list):
+        return []
+    out: List[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("isImage") is False:
+            continue
+        url = item.get("largeUrl") or item.get("url")
+        if isinstance(url, str) and url:
+            out.append(url)
+    return out
+
+
+def _images_from_hero(soup: BeautifulSoup) -> List[str]:
+    hero = soup.find(attrs={"data-component": "hero-images"})
+    if hero is None:
+        return []
+    out: List[str] = []
+    for im in hero.find_all("img"):
+        src = im.get("src") or im.get("data-src") or ""
+        if src:
+            out.append(src)
+    return out
+
+
+def _images_from_og_image(soup: BeautifulSoup) -> List[str]:
+    og = soup.find("meta", attrs={"property": "og:image"})
+    if og is None:
+        return []
+    content = (og.get("content") or "").strip()
+    return [content] if content else []
+
+
+def _clean_image_urls(urls: List[str]) -> List[str]:
+    """Dedupe, drop non-photo media (EPC graphs / floor plans), keep only
+    absolute ``https://`` URLs and preserve order."""
+    out: List[str] = []
+    seen: set[str] = set()
+    for url in urls:
+        if not isinstance(url, str):
+            continue
+        u = url.strip()
+        if not u.startswith("https://"):
+            continue
+        low = u.lower()
+        if any(token in low for token in _NON_PHOTO_TOKENS):
+            continue
+        if u in seen:
+            continue
+        seen.add(u)
+        out.append(u)
+    return out
 
 
 def _extract_key_information(soup: BeautifulSoup) -> Dict[str, str]:

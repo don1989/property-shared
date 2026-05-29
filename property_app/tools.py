@@ -768,9 +768,17 @@ def search_onthemarket(
     return {
         "search_url": search_url,
         "count": len(listings),
-        "listings": [_slim(l.model_dump(mode="json")) for l in listings],
+        "listings": [_onthemarket_search_listing_dict(l) for l in listings],
         "median_price": median_price,
     }
+
+
+def _onthemarket_search_listing_dict(listing: Any) -> dict:
+    """Slim a search-card listing and re-expose photos as `photo_urls`
+    (matching the detail tool / Rightmove shape)."""
+    data = _slim(listing.model_dump(mode="json"))
+    data["photo_urls"] = list(listing.images or [])
+    return data
 
 
 @mcp.tool(
@@ -820,7 +828,11 @@ def lookup_onthemarket_listing(property_id: str) -> dict:
     from property_core import fetch_onthemarket_listing
 
     listing = fetch_onthemarket_listing(property_id)
-    return _slim(listing.model_dump(mode="json"))
+    data = _slim(listing.model_dump(mode="json"))
+    # _slim drops the bulky `images` field; re-expose it as `photo_urls`
+    # to mirror the Rightmove tool's shape (downstream apps read this).
+    data["photo_urls"] = list(listing.images or [])
+    return data
 
 
 @mcp.tool(
@@ -840,7 +852,8 @@ def onthemarket_listing(
 
     Returns price, address, postcode, channel (sale/rent), tenure, lease
     years remaining, ground rent, service charge, council tax band, EPC
-    rating, hero images, and the verbatim Key information block.
+    rating, photo_urls (the full property photo gallery), and the verbatim
+    Key information block.
     """
     return lookup_onthemarket_listing(property_id)
 
