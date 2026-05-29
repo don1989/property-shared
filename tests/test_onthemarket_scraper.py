@@ -6,10 +6,13 @@ import os
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 from property_core.onthemarket_location import OnTheMarketLocationAPI
 from property_core.onthemarket_scraper import (
+    _clean_image_urls,
     _extract_data_layer,
+    _extract_detail_images,
     _extract_key_information,
     _parse_detail_html,
     _parse_search_html,
@@ -295,6 +298,61 @@ def test_parse_detail_html_full():
     assert detail.images and len(detail.images) >= 3
     assert detail.parent_locations == ["uk", "england", "south-east"]
     assert detail.description and "two bedroom" in detail.description.lower()
+
+
+def test_detail_images_prefer_full_gallery():
+    """The detail parser should return the full ``__NEXT_DATA__`` gallery,
+    not just the smaller visible hero subset."""
+    html = (FIXTURES / "otm_listing.html").read_text()
+    soup = BeautifulSoup(html, "html.parser")
+    images = _extract_detail_images(html, soup)
+    # All absolute https photo URLs, deduped, no EPC graphs / floor plans.
+    assert images, "expected a non-empty gallery"
+    assert all(u.startswith("https://") for u in images)
+    assert len(set(images)) == len(images)
+    assert not any("epc-graph" in u or "floor-plan" in u for u in images)
+    # __NEXT_DATA__ holds more photos than the hero DOM subset (5), so the
+    # gallery must be preferred over the hero fallback.
+    assert len(images) > 5
+
+
+def test_clean_image_urls_filters_and_dedupes():
+    raw = [
+        "https://media.onthemarket.com/properties/1/x/image-0-1024x1024.jpg",
+        "https://media.onthemarket.com/properties/1/x/image-0-1024x1024.jpg",  # dup
+        "https://media.onthemarket.com/properties/1/x/floor-plan-0-1024x1024.jpg",
+        "https://media.onthemarket.com/properties/1/x/epc-graph-0-1024x1024.gif",
+        "http://media.onthemarket.com/properties/1/x/image-1.jpg",  # not https
+        "",
+        None,  # type: ignore[list-item]
+        "https://media.onthemarket.com/properties/1/x/image-1-1024x1024.jpg",
+    ]
+    cleaned = _clean_image_urls(raw)
+    assert cleaned == [
+        "https://media.onthemarket.com/properties/1/x/image-0-1024x1024.jpg",
+        "https://media.onthemarket.com/properties/1/x/image-1-1024x1024.jpg",
+    ]
+
+
+def test_detail_images_falls_back_to_og_image():
+    """With no ``__NEXT_DATA__`` and no hero section, the og:image hero is used."""
+    html = (
+        '<html><head>'
+        '<meta property="og:image" '
+        'content="https://media.onthemarket.com/properties/9/x/image-0-1024x1024.jpg">'
+        '</head><body></body></html>'
+    )
+    soup = BeautifulSoup(html, "html.parser")
+    images = _extract_detail_images(html, soup)
+    assert images == [
+        "https://media.onthemarket.com/properties/9/x/image-0-1024x1024.jpg"
+    ]
+
+
+def test_detail_images_empty_on_garbage():
+    html = "<html><body><p>no images here</p></body></html>"
+    soup = BeautifulSoup(html, "html.parser")
+    assert _extract_detail_images(html, soup) == []
 
 
 # ---------------------------------------------------------------------------
