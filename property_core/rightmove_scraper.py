@@ -207,15 +207,34 @@ def fetch_listings(
 def _get_search_results(
     *, session: Session, url: str, timeout: float, retry_attempts: int, retry_backoff: float
 ) -> Dict[str, Any]:
-    response = _get_with_retries(
-        session=session,
-        url=url,
-        timeout=timeout,
-        retry_attempts=retry_attempts,
-        retry_backoff=retry_backoff,
-    )
-    soup = BeautifulSoup(response.text, "html.parser")
-    return _extract_search_results(soup)
+    # _get_with_retries already retries network errors / 429 / 5xx per fetch.
+    # On top of that, a 200 response with no __NEXT_DATA__ payload is almost
+    # always a transient bot-challenge / interstitial page rather than a real
+    # layout change, so refetch the whole page a few times before giving up
+    # instead of silently dropping Rightmove (the only portal with photos)
+    # from the entire scan. The original RightmoveError is preserved if every
+    # attempt is blocked, so the caller's error contract is unchanged.
+    attempts = max(1, retry_attempts)
+    last_soft_block: RightmoveError | None = None
+    for attempt in range(attempts):
+        response = _get_with_retries(
+            session=session,
+            url=url,
+            timeout=timeout,
+            retry_attempts=retry_attempts,
+            retry_backoff=retry_backoff,
+        )
+        soup = BeautifulSoup(response.text, "html.parser")
+        try:
+            return _extract_search_results(soup)
+        except RightmoveError as exc:
+            if "embedded search data" not in str(exc):
+                raise
+            last_soft_block = exc
+            if attempt < attempts - 1:
+                time.sleep(retry_backoff * (attempt + 1))
+    assert last_soft_block is not None
+    raise last_soft_block
 
 
 def _extract_search_results(soup: BeautifulSoup) -> Dict[str, Any]:
