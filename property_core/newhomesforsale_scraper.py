@@ -57,9 +57,18 @@ class RetryableError(Exception):
 
 _DEV_ID_RE = re.compile(r"^dev_(\d+)$")
 _POSTCODE_RE = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b")
+# A price amount is a £ followed by a comma-grouped number with no
+# trailing magnitude letter (so "£12k", "£1.5bn", "£475m" never match a
+# headline price - those are marketing/incidental amounts, not the
+# development's asking price).
+_PRICE_AMOUNT_RE = re.compile(r"£\s*([\d][\d,]*)(?![\d.,]*[a-zA-Z])")
 _PRICE_RANGE_RE = re.compile(
-    r"£\s*([\d,]+)\s*(?:-|–|to)\s*£?\s*([\d,]+)|£\s*([\d,]+)"
+    r"£\s*([\d][\d,]*)(?![\d.,]*[a-zA-Z])\s*(?:-|–|to)\s*"
+    r"£?\s*([\d][\d,]*)(?![\d.,]*[a-zA-Z])"
 )
+# Plausible new-build asking price floor; anything below this is a parse
+# artefact (plot counts, "£12k stamp duty", share fractions of pounds).
+_MIN_PLAUSIBLE_PRICE = 10_000
 _DISTANCE_MILES_RE = re.compile(r"approximately\s+([\d.]+)\s*miles?")
 
 
@@ -248,7 +257,7 @@ def _parse_card(card: Tag) -> NewHomesForSaleDevelopment | None:
     bedrooms_text, bedrooms_min, bedrooms_max, property_type = _extract_unit_info(
         text_lines
     )
-    price_min, price_max = _extract_price_range(text_lines)
+    price_min, price_max = _extract_price_range(card)
     description = _extract_description(text_lines)
 
     return NewHomesForSaleDevelopment(
@@ -393,18 +402,62 @@ def _extract_unit_info(
     return None, None, None, None
 
 
-def _extract_price_range(text_lines: list[str]) -> tuple[int | None, int | None]:
-    """Pull the £XXX,XXX - £YYY,YYY line."""
-    for line in text_lines:
-        if "£" not in line:
-            continue
-        m = _PRICE_RANGE_RE.search(line)
-        if not m:
-            continue
-        if m.group(1) and m.group(2):
-            return _parse_price(m.group(1)), _parse_price(m.group(2))
-        if m.group(3):
-            single = _parse_price(m.group(3))
+def _extract_price_range(card: Tag) -> tuple[int | None, int | None]:
+    """Pull the headline asking price from the card's ``<p class="price">``.
+
+    The price always lives in a dedicated ``<p class="price">`` element,
+    so we read it directly rather than scanning the whole card's text
+    (which also contains marketing copy like "STAMP DUTY PAID up to
+    £12k" or "£1.5bn regeneration area" that previously poisoned the
+    parse).
+
+    Shared-ownership developments quote the share price first and the
+    real headline second, e.g.::
+
+        £53,125 - £58,125 for a 25% share
+        £212,500 - £232,500 Full Market Value
+
+    For those we return the "Full Market Value" figure (the price a
+    buyer would compare against ordinary listings), not the share.
+
+    Bogus amounts (below :data:`_MIN_PLAUSIBLE_PRICE`, or abbreviated
+    like "£12k") are never emitted - we return ``None`` rather than a
+    junk number.
+    """
+    price_el = card.find("p", class_="price")
+    if not isinstance(price_el, Tag):
+        return None, None
+
+    # Prefer the "Full Market Value" amount on shared-ownership cards;
+    # it is the like-for-like headline price. The FMV amount is the £
+    # range / single £amount that immediately precedes the words "Full
+    # Market Value".
+    text = price_el.get_text(" ", strip=True)
+    fmv = re.search(
+        r"(£[\s\d,]+(?:(?:-|–|to)\s*£?[\s\d,]+)?)\s*Full Market Value",
+        text,
+        re.IGNORECASE,
+    )
+    if fmv:
+        price_min, price_max = _prices_from_text(fmv.group(1))
+        if price_min is not None:
+            return price_min, price_max
+
+    return _prices_from_text(text)
+
+
+def _prices_from_text(text: str) -> tuple[int | None, int | None]:
+    """Parse a £range / single £amount from one price string."""
+    m = _PRICE_RANGE_RE.search(text)
+    if m:
+        low = _parse_price(m.group(1))
+        high = _parse_price(m.group(2))
+        if low is not None and high is not None:
+            return low, high
+    m = _PRICE_AMOUNT_RE.search(text)
+    if m:
+        single = _parse_price(m.group(1))
+        if single is not None:
             return single, single
     return None, None
 
@@ -412,9 +465,12 @@ def _extract_price_range(text_lines: list[str]) -> tuple[int | None, int | None]
 def _parse_price(raw: str) -> int | None:
     cleaned = raw.replace(",", "").strip()
     try:
-        return int(cleaned)
+        value = int(cleaned)
     except (TypeError, ValueError):
         return None
+    if value < _MIN_PLAUSIBLE_PRICE:
+        return None
+    return value
 
 
 def _extract_description(text_lines: list[str]) -> str | None:

@@ -125,6 +125,61 @@ def test_lookup_rightmove_listing_handles_scraper_error() -> None:
     assert "Cloudflare" in result["error"]
 
 
+def test_lookup_onthemarket_listing_exposes_photo_urls() -> None:
+    """Regression: `_slim` drops the bulky `images` field, so the OnTheMarket
+    detail tool must re-expose the gallery as `photo_urls` (the field
+    downstream apps read). Without this, photos silently vanish from the
+    tool output even though the scraper populated them."""
+    from property_app.tools import lookup_onthemarket_listing
+
+    images = [
+        "https://media.onthemarket.com/properties/42/x/image-0-1024x1024.jpg",
+        "https://media.onthemarket.com/properties/42/x/image-1-1024x1024.jpg",
+    ]
+    stub = SimpleNamespace(
+        model_dump=lambda mode="json": {
+            "id": "42",
+            "url": "https://www.onthemarket.com/details/42/",
+            "price": 500000,
+            "images": images,
+            "raw": {"data_layer": {}},
+        },
+        images=images,
+    )
+
+    with patch("property_core.fetch_onthemarket_listing", return_value=stub):
+        result = lookup_onthemarket_listing("42")
+
+    # `images` and `raw` are slimmed away, but photo_urls carries the gallery.
+    assert "images" not in result
+    assert "raw" not in result
+    assert result["photo_urls"] == images
+
+
+def test_onthemarket_search_listing_dict_exposes_photo_urls() -> None:
+    """Regression: search cards run through the same `_slim`; the per-card
+    serialiser must re-expose photos as `photo_urls`."""
+    from property_app.tools import _onthemarket_search_listing_dict
+
+    images = [
+        "https://media.onthemarket.com/properties/42/x/image-1-480x320.jpg",
+        "https://media.onthemarket.com/properties/42/x/image-2-480x320.jpg",
+    ]
+    listing = SimpleNamespace(
+        model_dump=lambda mode="json": {
+            "id": "42",
+            "url": "https://www.onthemarket.com/details/42/",
+            "images": images,
+            "raw": {"html": "<article/>"},
+        },
+        images=images,
+    )
+
+    data = _onthemarket_search_listing_dict(listing)
+    assert "images" not in data
+    assert data["photo_urls"] == images
+
+
 def test_search_newhomesforsale_resolves_county_from_postcode() -> None:
     import anyio
 

@@ -105,6 +105,54 @@ def test_search_extracts_developer_and_price_range_variations():
         assert l.price_max is not None and l.price_max >= l.price_min
 
 
+def test_search_shared_ownership_uses_full_market_value():
+    """Shared-ownership cards quote a share price first and the real
+    'Full Market Value' second; we must surface the FMV, not the share."""
+    listings = _parse_search_html(_load_search_fixture())
+    so = next(
+        (l for l in listings if l.name and "Linmere" in l.name), None
+    )
+    assert so is not None, "expected the BPHA at Linmere shared-ownership card"
+    # Fixture: 'From £91,250 for a 25% share (From £365,000 Full Market Value)'.
+    # The £91,250 share must NOT win.
+    assert so.price_min == 365_000 and so.price_max == 365_000
+
+
+def _load_basildon_fixture() -> str:
+    return (FIXTURES / "nhfs_search_basildon.html").read_text()
+
+
+def test_search_basildon_ignores_stamp_duty_flash():
+    """SS14 2RR (Beechwood) headline is 'From £440,000'. A 'STAMP DUTY
+    PAID up to £12k' marketing flash on the card used to be parsed as a
+    £12 price."""
+    listings = _parse_search_html(_load_basildon_fixture())
+    dev = next((l for l in listings if l.postcode == "SS14 2RR"), None)
+    assert dev is not None, "expected the SS14 2RR (Beechwood) card"
+    assert dev.price_min == 440_000 and dev.price_max == 440_000
+
+
+def test_search_basildon_shared_ownership_full_market_value():
+    """SS11 7HG (Gateway House) is shared ownership: '£53,125 - £58,125
+    for a 25% share / £212,500 - £232,500 Full Market Value'. The share
+    range used to be emitted; we want the Full Market Value range."""
+    listings = _parse_search_html(_load_basildon_fixture())
+    dev = next((l for l in listings if l.postcode == "SS11 7HG"), None)
+    assert dev is not None, "expected the SS11 7HG (Gateway House) card"
+    assert dev.price_min == 212_500 and dev.price_max == 232_500
+
+
+def test_search_never_emits_implausible_price():
+    """No parsed price should fall below the plausible new-build floor;
+    a junk value (e.g. 12 from '£12k') must be dropped, not emitted."""
+    for fixture in (_load_search_fixture(), _load_basildon_fixture()):
+        for l in _parse_search_html(fixture):
+            if l.price_min is not None:
+                assert l.price_min >= 10_000, f"{l.name}: bogus price {l.price_min}"
+            if l.price_max is not None:
+                assert l.price_max >= 10_000, f"{l.name}: bogus price {l.price_max}"
+
+
 def test_search_returns_empty_list_on_empty_html():
     assert _parse_search_html("<html><body></body></html>") == []
 

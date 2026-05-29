@@ -233,6 +233,26 @@ def test_parse_search_html_extracts_cards():
     assert first.images and "media.onthemarket.com" in first.images[0]
 
 
+def test_parse_search_html_every_card_has_images():
+    """Regression: search cards must yield photo URLs (these become
+    ``photo_urls`` downstream). A markup change that broke the
+    ``itemprop=contentUrl`` / spotlight-swiper extraction would leave cards
+    with empty galleries — assert every card in the fixture has at least one
+    media.onthemarket.com image."""
+    html = (FIXTURES / "otm_search.html").read_text()
+    listings = _parse_search_html(html)
+    assert listings
+    cards_without_images = [l.id for l in listings if not l.images]
+    assert not cards_without_images, (
+        f"cards missing images: {cards_without_images}"
+    )
+    assert all(
+        "media.onthemarket.com" in img
+        for l in listings
+        for img in l.images
+    )
+
+
 def test_parse_search_html_status_pill():
     """Status comes from data-component='pill' (Spotlight, Featured, Reduced, etc.)."""
     html = (FIXTURES / "otm_search.html").read_text()
