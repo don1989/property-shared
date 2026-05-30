@@ -56,7 +56,7 @@ def fetch_listing(
     property_url_or_id: str,
     *,
     timeout: float = 15.0,
-    retry_attempts: int = 3,
+    retry_attempts: int = 5,
     retry_backoff: float = 1.5,
     impersonate_profiles: tuple[str, ...] = _CURL_CFFI_PROFILES,
     proxy: str | None = None,
@@ -84,16 +84,36 @@ def fetch_listing(
             message when Cloudflare returns a challenge.
     """
     url = _normalize_property_url(property_url_or_id)
-    html = _fetch_listing_html(
-        url,
-        timeout=timeout,
-        retry_attempts=retry_attempts,
-        retry_backoff=retry_backoff,
-        impersonate_profiles=impersonate_profiles,
-        proxy=proxy,
-    )
-    property_data = _extract_page_model(html)
-    return RightmoveListingDetail.from_page_model(property_data, url=url)
+
+    # A 200 response with no PAGE_MODEL payload is almost always a transient
+    # bot-challenge / interstitial rather than a real layout change, so refetch
+    # the page a few times before giving up (mirrors _get_search_results). A
+    # genuine parse error (invalid JSON, missing propertyData) is re-raised
+    # immediately, and the original soft-block error is preserved if every
+    # attempt is blocked, so the caller's error contract is unchanged.
+    attempts = max(1, retry_attempts)
+    last_soft_block: RightmoveError | None = None
+    for attempt in range(attempts):
+        html = _fetch_listing_html(
+            url,
+            timeout=timeout,
+            retry_attempts=retry_attempts,
+            retry_backoff=retry_backoff,
+            impersonate_profiles=impersonate_profiles,
+            proxy=proxy,
+        )
+        try:
+            property_data = _extract_page_model(html)
+        except RightmoveError as exc:
+            if "Could not locate PAGE_MODEL" not in str(exc):
+                raise
+            last_soft_block = exc
+            if attempt < attempts - 1:
+                time.sleep(retry_backoff * (attempt + 1))
+            continue
+        return RightmoveListingDetail.from_page_model(property_data, url=url)
+    assert last_soft_block is not None
+    raise last_soft_block
 
 
 def _fetch_listing_html(
@@ -164,7 +184,7 @@ def fetch_listings(
     timeout: float = 15.0,
     max_pages: Optional[int] = None,
     rate_limit_seconds: float = 0.6,
-    retry_attempts: int = 3,
+    retry_attempts: int = 5,
     retry_backoff: float = 1.5,
 ) -> list[RightmoveListing]:
     """Fetch listings from a Rightmove search URL across pages."""
