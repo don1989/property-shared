@@ -41,6 +41,23 @@ SPARQL_ENDPOINT = "https://landregistry.data.gov.uk/landregistry/sparql"
 
 SPARQL_RETRY_ATTEMPTS = 3
 SPARQL_RETRY_BACKOFF_SECONDS = 0.5
+# Cap on a server-sent Retry-After so one large value can't stall the worker
+# thread for an unreasonable amount of time.
+SPARQL_RETRY_MAX_BACKOFF_SECONDS = 10.0
+
+
+def _retry_after_seconds(value: Optional[str]) -> Optional[float]:
+    """Parse a Retry-After header given as delta-seconds, else None.
+
+    The HTTP-date form isn't handled; callers fall back to exponential backoff
+    in that case.
+    """
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value.strip()))
+    except (TypeError, ValueError):
+        return None
 
 # Property type codes match the CSV column values.
 PROPERTY_TYPE_URIS: Dict[str, str] = {
@@ -294,6 +311,7 @@ class PricePaidDataClient:
     def _fetch_sparql(self, encoded_query: bytes) -> Dict:
         last_exc: Exception | None = None
         for attempt in range(1, SPARQL_RETRY_ATTEMPTS + 1):
+            retry_after: Optional[float] = None
             req = urllib.request.Request(
                 self.sparql_endpoint,
                 data=encoded_query,
@@ -303,14 +321,21 @@ class PricePaidDataClient:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     return json.load(resp)
             except urllib.error.HTTPError as exc:
-                if exc.code not in {503}:
+                # 429 (rate limited) and 503 (endpoint busy) are transient: back
+                # off and retry rather than failing the whole comps call. Any
+                # other status is a real error, so re-raise immediately.
+                if exc.code not in {429, 503}:
                     raise
                 last_exc = exc
+                retry_after = _retry_after_seconds(exc.headers.get("Retry-After"))
             except (TimeoutError, urllib.error.URLError) as exc:
                 last_exc = exc
 
             if attempt < SPARQL_RETRY_ATTEMPTS:
                 backoff = SPARQL_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                # Honour a server-sent Retry-After (delta-seconds), capped.
+                if retry_after is not None:
+                    backoff = min(max(backoff, retry_after), SPARQL_RETRY_MAX_BACKOFF_SECONDS)
                 time.sleep(backoff)
 
         if last_exc:
