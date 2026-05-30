@@ -195,6 +195,7 @@ class OnTheMarketListingDetail(BaseModel):
     annual_service_charge: Optional[int] = None
     council_tax_band: Optional[str] = None
     epc_rating: Optional[str] = None
+    nearest_stations: List[Dict[str, Any]] = Field(default_factory=list)
     raw: Optional[Dict[str, Any]] = Field(default=None, exclude=True)
 
     @classmethod
@@ -210,6 +211,7 @@ class OnTheMarketListingDetail(BaseModel):
         display_price: str | None,
         images: List[str],
         key_information: Dict[str, str],
+        nearest_stations: List[Dict[str, Any]] | None = None,
     ) -> OnTheMarketListingDetail:
         # Pull canonical fields from the dataLayer payload (verbatim keys).
         dl_price = _parse_int(data_layer.get("price"))
@@ -245,6 +247,7 @@ class OnTheMarketListingDetail(BaseModel):
             annual_service_charge=_extract_service_charge(ki),
             council_tax_band=_extract_council_tax_band(ki),
             epc_rating=_extract_epc_rating(ki),
+            nearest_stations=nearest_stations or [],
             raw={"data_layer": data_layer, "key_information": key_information},
         )
 

@@ -838,6 +838,9 @@ def lookup_onthemarket_listing(property_id: str) -> dict:
     # _slim drops the bulky `images` field; re-expose it as `photo_urls`
     # to mirror the Rightmove tool's shape (downstream apps read this).
     data["photo_urls"] = list(listing.images or [])
+    # Normalise stations to the canonical {name, distance_miles} shape the
+    # downstream apps read, same as the Rightmove tool.
+    data["nearest_stations"] = _map_nearest_stations(getattr(listing, "nearest_stations", None))
     return data
 
 
@@ -858,8 +861,8 @@ def onthemarket_listing(
 
     Returns price, address, postcode, channel (sale/rent), tenure, lease
     years remaining, ground rent, service charge, council tax band, EPC
-    rating, photo_urls (the full property photo gallery), and the verbatim
-    Key information block.
+    rating, photo_urls (the full property photo gallery), nearest_stations
+    (name + distance in miles), and the verbatim Key information block.
     """
     return lookup_onthemarket_listing(property_id)
 

@@ -320,6 +320,22 @@ def test_parse_detail_html_full():
     assert detail.description and "two bedroom" in detail.description.lower()
 
 
+def test_detail_extracts_nearest_stations():
+    html = (FIXTURES / "otm_listing.html").read_text()
+    detail = _parse_detail_html(
+        html,
+        listing_id="19100332",
+        url="https://www.onthemarket.com/details/19100332/",
+    )
+    assert detail.nearest_stations, "stations should come from the redux blob"
+    first = detail.nearest_stations[0]
+    assert first["name"] == "Victoria Underground Station"
+    assert first["distance"] == 0.2
+    assert first["unit"] == "miles"
+    names = [s["name"] for s in detail.nearest_stations]
+    assert "St. James's Park Underground Station" in names
+
+
 def test_detail_images_prefer_full_gallery():
     """The detail parser should return the full ``__NEXT_DATA__`` gallery,
     not just the smaller visible hero subset."""

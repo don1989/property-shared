@@ -433,6 +433,8 @@ def _parse_detail_html(
 
     key_information = _extract_key_information(soup)
 
+    nearest_stations = _stations_from_next_data(html)
+
     return OnTheMarketListingDetail.build(
         listing_id=listing_id,
         url=url,
@@ -443,6 +445,7 @@ def _parse_detail_html(
         display_price=display_price,
         images=images,
         key_information=key_information,
+        nearest_stations=nearest_stations,
     )
 
 
@@ -514,6 +517,53 @@ def _images_from_next_data(html: str) -> List[str]:
         url = item.get("largeUrl") or item.get("url")
         if isinstance(url, str) and url:
             out.append(url)
+    return out
+
+
+_STATION_DISTANCE_RE = re.compile(r"([\d.]+)\s*mi", re.IGNORECASE)
+
+
+def _stations_from_next_data(html: str) -> List[dict]:
+    """Pull nearby stations from the ``__NEXT_DATA__`` redux state.
+
+    Each entry carries a ``name`` / ``fullName``, a ``displayDistance`` like
+    ``"0.2mi."`` and ``allNetworks`` (Tube / Rail / ...). Returned in the
+    ``{name, distance, unit, types}`` shape the canonical mapper expects.
+    Returns ``[]`` on any parse failure rather than raising, so markup drift
+    degrades to no stations instead of a crash.
+    """
+    match = _NEXT_DATA_RE.search(html)
+    if not match:
+        return []
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return []
+    try:
+        items = data["props"]["initialReduxState"]["property"]["station"]
+    except (KeyError, TypeError):
+        return []
+    if not isinstance(items, list):
+        return []
+    out: List[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("fullName") or item.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        miles: float | None = None
+        display = item.get("displayDistance")
+        if isinstance(display, str):
+            m = _STATION_DISTANCE_RE.search(display)
+            if m:
+                try:
+                    miles = float(m.group(1))
+                except ValueError:
+                    miles = None
+        networks = item.get("allNetworks") or []
+        types = [n.get("type") for n in networks if isinstance(n, dict) and n.get("type")]
+        out.append({"name": name, "distance": miles, "unit": "miles", "types": types})
     return out
 
 
