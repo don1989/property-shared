@@ -24,6 +24,11 @@ RUN uv sync --frozen --no-dev --extra api
 COPY app ./app
 COPY property_core ./property_core
 
+# Run as a non-root user so a compromise (scraping stack / dep RCE) doesn't run
+# as uid 0 in-container (audit M7).
+RUN useradd -u 1001 -m appuser && chown -R appuser /app /opt/venv
+USER appuser
+
 EXPOSE 8080
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

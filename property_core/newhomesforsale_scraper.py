@@ -150,6 +150,16 @@ def fetch_listing(
             "fetch_listing requires an absolute URL; numeric ids cannot be resolved "
             "without a prior search (NHFS detail URLs include a county/town/slug path)"
         )
+    # SSRF guard: only fetch NewHomesForSale URLs, never arbitrary hosts /
+    # private addresses supplied by the caller.
+    from property_core.url_guard import UrlNotAllowedError, validate_listing_url
+
+    try:
+        url_or_id = validate_listing_url(
+            url_or_id, allowed_suffixes=("newhomesforsale.co.uk",)
+        )
+    except UrlNotAllowedError as exc:
+        raise NewHomesForSaleError(str(exc)) from exc
     if rate_limit_seconds:
         time.sleep(rate_limit_seconds)
 

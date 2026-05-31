@@ -247,9 +247,11 @@ def _next_page_url(search_url: str, next_page: int) -> str:
 
 
 def _normalize_listing_url(url_or_id: str) -> str:
+    from property_core.url_guard import validate_listing_url
+
     s = url_or_id.strip()
     if s.startswith("http"):
-        return s
+        return validate_listing_url(s, allowed_suffixes=("onthemarket.com",))
     return f"{_BASE}/details/{s}/"
 
 

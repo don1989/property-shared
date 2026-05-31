@@ -102,8 +102,16 @@ class HTTPMetricsMiddleware:
 
 
 def setup_metrics(app: FastAPI) -> None:
-    """Expose /metrics endpoint backed by the global prometheus-client registry."""
+    """Expose /metrics endpoint backed by the global prometheus-client registry.
+
+    Gated behind the MCP bearer token when one is configured (audit M8): metrics
+    reveal request volumes / routes / error rates that aid abuse, so they should
+    not be anonymously readable in production. Open when no key is set (dev).
+    """
+    from app.core.security import require_metrics_auth
 
     @app.get("/metrics", include_in_schema=False)
-    async def metrics_endpoint() -> Response:
+    async def metrics_endpoint(request: Request) -> Response:
+        if not require_metrics_auth(request.headers.get("authorization")):
+            return Response("Unauthorized", status_code=401)
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

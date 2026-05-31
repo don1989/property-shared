@@ -29,13 +29,16 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.web.routes import router as demo_router
 from app.core.middleware import _AcceptNormalizer
+from app.core.security import McpGuard
 from app.mcp.server import build_asgi_app, _http_app as _mcp_http_app
 
 
 # Can't use app.mount("/mcp") — Starlette always 307-redirects /mcp → /mcp/
 # and neither Claude.ai nor ChatGPT follow 307 for POST requests.
 # Middleware routes /mcp directly without redirect.
-_local_mcp_app = _AcceptNormalizer(build_asgi_app())
+# McpGuard enforces bearer auth (MCP_API_KEY, fail-closed when set) + per-client
+# rate limiting before any tool runs (audit C1 / C1b).
+_local_mcp_app = McpGuard(_AcceptNormalizer(build_asgi_app()))
 
 
 class MCPMiddleware:
@@ -68,10 +71,17 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app_lifespan = lifespan
     settings = get_settings()
+    # Disable the interactive docs + OpenAPI schema in production so the full
+    # API surface isn't enumerable by anonymous callers (audit M8).
+    is_prod = settings.environment.lower() in ("prod", "production")
+    docs_kwargs = (
+        dict(docs_url=None, redoc_url=None, openapi_url=None) if is_prod else {}
+    )
     app = FastAPI(
         title=settings.app_name,
         version=_pkg_version("property-shared"),
         lifespan=app_lifespan,
+        **docs_kwargs,
     )
     app.include_router(api_router)
     app.include_router(demo_router)

@@ -18,6 +18,10 @@ COPY property_core ./property_core
 COPY property_app ./property_app
 RUN uv sync --frozen --no-dev --extra apps
 
+# Run as a non-root user so a compromise doesn't run as uid 0 (audit M7).
+RUN useradd -u 1001 -m appuser && chown -R appuser /app /opt/venv
+USER appuser
+
 EXPOSE 8080
 
 CMD ["property-app"]

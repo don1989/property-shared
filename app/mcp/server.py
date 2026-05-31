@@ -9,8 +9,15 @@ from importlib.metadata import version as _pkg_version
 from typing import Any
 
 import asyncio
+import os
 
 import httpx
+
+# Server-side clamps on caller-controlled fan-out (audit C1b). A caller must not
+# be able to drive hundreds of outbound pages / rows from a single tool call;
+# these bound it regardless of the argument passed. Tunable via env.
+_MAX_PAGES = int(os.environ.get("MCP_MAX_PAGES", "3"))
+_MAX_LIMIT = int(os.environ.get("MCP_MAX_LIMIT", "200"))
 from fastmcp import FastMCP
 from fastmcp.server.http import create_streamable_http_app
 from fastmcp.tools import ToolResult
@@ -86,6 +93,7 @@ async def property_comps(
     limit caps returned transactions (max 200). enrich_epc attaches EPC floor
     area and price-per-sqft to each transaction — slower but richer.
     """
+    limit = max(1, min(limit, _MAX_LIMIT))  # clamp fan-out (audit C1b)
     from property_core import PPDService
     result = PPDService().comps(
         postcode=postcode,
@@ -310,6 +318,7 @@ async def rightmove_search(
     new-builds (Rightmove's dedicated /new-homes-for-sale/ index).
     Images are excluded from results.
     """
+    max_pages = max(1, min(max_pages, _MAX_PAGES))  # clamp fan-out (audit C1b)
     import anyio
     from property_core import RightmoveLocationAPI, fetch_listings
     loc_api = RightmoveLocationAPI()
@@ -409,6 +418,7 @@ if _ZOOPLA_ENABLED:
         fingerprint impersonation) to defeat Cloudflare; no browser
         required.
         """
+        max_pages = max(1, min(max_pages, _MAX_PAGES))  # clamp fan-out (audit C1b)
         import anyio
         from property_core import ZooplaLocationAPI, fetch_zoopla_listings
         loc_api = ZooplaLocationAPI()
@@ -473,6 +483,7 @@ async def onthemarket_search(
     S=semi, T=terraced. new_build=True restricts to new-builds (uses
     OnTheMarket's /new-homes/property/ index).
     """
+    max_pages = max(1, min(max_pages, _MAX_PAGES))  # clamp fan-out (audit C1b)
     import anyio
     from property_core import OnTheMarketLocationAPI, fetch_onthemarket_listings
     loc_api = OnTheMarketLocationAPI()
@@ -660,6 +671,7 @@ def ppd_transactions(
     property_type: str | None = None,
 ) -> dict:
     """Raw Land Registry Price Paid transactions for a postcode."""
+    limit = max(1, min(limit, _MAX_LIMIT))  # clamp fan-out (audit C1b)
     from property_core import PPDService
     result = PPDService().search_transactions(
         postcode=postcode,

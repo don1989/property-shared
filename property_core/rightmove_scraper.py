@@ -321,10 +321,16 @@ _PAGE_MODEL_RE = re.compile(r"window\.__PAGE_MODEL\s*=\s*(.+);")
 
 
 def _normalize_property_url(url_or_id: str) -> str:
-    """Accept a full Rightmove URL or numeric ID, return a canonical detail URL."""
+    """Accept a full Rightmove URL or numeric ID, return a canonical detail URL.
+
+    A full URL is validated against the SSRF allowlist (Rightmove only); a bare
+    id is composed into a known-safe URL server-side.
+    """
+    from property_core.url_guard import validate_listing_url
+
     url_or_id = url_or_id.strip()
     if url_or_id.startswith("http"):
-        return url_or_id
+        return validate_listing_url(url_or_id, allowed_suffixes=("rightmove.co.uk",))
     return f"https://www.rightmove.co.uk/properties/{url_or_id}"
 
 

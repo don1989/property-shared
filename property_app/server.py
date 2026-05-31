@@ -334,6 +334,8 @@ def main() -> None:
     if transport not in ("stdio", "http"):
         transport = "stdio"
     if transport == "http":
+        from property_core.mcp_security import McpGuard, forwarded_allow_ips
+
         port = int(os.environ.get("FASTMCP_PORT", "8080"))
         app = create_streamable_http_app(
             mcp,
@@ -341,11 +343,16 @@ def main() -> None:
             json_response=True,
             stateless_http=True,
         )
+        # Bearer auth (MCP_API_KEY, fail-closed when set) + per-client rate
+        # limiting in front of every tool call (audit C1 / C1b).
+        guarded = McpGuard(_AcceptNormalizer(app))
         uvicorn.run(
-            _AcceptNormalizer(app),
+            guarded,
             host=os.environ.get("FASTMCP_HOST", "0.0.0.0"),
             port=port,
-            forwarded_allow_ips="*",
+            # Scope trusted proxy IPs instead of "*" so XFF can't be spoofed by
+            # arbitrary clients (audit C1). Set FORWARDED_ALLOW_IPS to the proxy.
+            forwarded_allow_ips=forwarded_allow_ips(),
             proxy_headers=True,
             lifespan="on",
             log_level="info",
