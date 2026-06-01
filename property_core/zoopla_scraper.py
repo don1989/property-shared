@@ -42,18 +42,24 @@ class ZooplaError(Exception):
 
 
 _BASE = "https://www.zoopla.co.uk"
-_DEFAULT_IMPERSONATE = "chrome120"
+_DEFAULT_IMPERSONATE = "chrome131"
 
 # Profiles tried in order when the default (or caller-supplied) profile gets
-# blocked by Cloudflare. Chosen to span both major TLS-fingerprint families
-# (Chromium-based and Safari/Firefox); if all four fail from the same egress
-# IP, that IP is genuinely on Cloudflare's heavy-mitigation list and a
-# residential proxy is the next step.
+# blocked by Cloudflare. Recent fingerprints come first — Cloudflare scores
+# partly on how *current* the TLS fingerprint looks, so a 2-year-old Chrome is
+# more likely to be challenged. Proven older profiles are kept as the rotation
+# tail so there's still a valid option on older curl_cffi builds (the package
+# ships to PyPI with curl_cffi>=0.7). Names the installed curl_cffi doesn't
+# recognise are filtered out via _supported_profiles(). If every profile fails
+# from the same egress IP, that IP is on Cloudflare's heavy-mitigation list and
+# a residential proxy is the next step.
 _FALLBACK_PROFILES: tuple[str, ...] = (
+    "chrome131",
+    "safari18_0_ios",
+    "firefox135",
     "chrome120",
     "safari17_2_ios",
     "firefox133",
-    "chrome116",
 )
 
 _DETAIL_HREF_RE = re.compile(r"^/for-sale/details/(\d+)/?")
@@ -223,6 +229,26 @@ def _profiles_to_try(initial: str, fallbacks: tuple[str, ...]) -> list[str]:
     return out
 
 
+def _supported_profiles(profiles: list[str]) -> list[str]:
+    """Drop impersonation profiles the installed curl_cffi doesn't know.
+
+    The package pins ``curl_cffi>=0.7`` and is published to PyPI, so a
+    consumer may have an older build that lacks the newest fingerprint
+    names. Filtering against the live ``BrowserType`` enum avoids wasting a
+    rotation slot on a name the library would reject. If filtering would
+    drop everything (or the enum can't be read), the input is returned
+    unchanged and the request layer surfaces any error.
+    """
+    try:
+        from curl_cffi.requests import BrowserType
+
+        available = {e.value for e in BrowserType}
+    except Exception:  # pragma: no cover - ancient/partial curl_cffi
+        return profiles
+    filtered = [p for p in profiles if p in available]
+    return filtered or profiles
+
+
 def _fetch_with_profile_rotation(
     *,
     url: str,
@@ -237,7 +263,7 @@ def _fetch_with_profile_rotation(
     Raises ``ZooplaError`` listing every profile that failed only if all
     of them did.
     """
-    profiles = _profiles_to_try(impersonate, fallback_profiles)
+    profiles = _supported_profiles(_profiles_to_try(impersonate, fallback_profiles))
     failures: list[str] = []
     for profile in profiles:
         session = _new_session(impersonate=profile, proxy=proxy)
