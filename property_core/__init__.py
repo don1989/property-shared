@@ -38,6 +38,10 @@ from property_core.models.newhomesforsale import (
     NewHomesForSaleDevelopmentDetail,
 )
 from property_core.models.onthemarket import OnTheMarketListing, OnTheMarketListingDetail
+from property_core.models.primelocation import (
+    PrimeLocationListing,
+    PrimeLocationListingDetail,
+)
 from property_core.models.zoopla import ZooplaListing, ZooplaListingDetail
 from property_core.newhomesforsale_location import NewHomesForSaleLocationAPI
 from property_core.newhomesforsale_scraper import (
@@ -50,6 +54,11 @@ from property_core.onthemarket_location import OnTheMarketLocationAPI
 from property_core.onthemarket_scraper import (
     fetch_listing as fetch_onthemarket_listing,
     fetch_listings as fetch_onthemarket_listings,
+)
+from property_core.primelocation_location import PrimeLocationLocationAPI
+from property_core.primelocation_scraper import (
+    fetch_listing as fetch_primelocation_listing,
+    fetch_listings as fetch_primelocation_listings,
 )
 from property_core.zoopla_location import ZooplaLocationAPI
 from property_core.zoopla_scraper import (
@@ -67,6 +76,7 @@ __all__ = [
     "PostcodeClient",
     "PPDService",
     "PricePaidDataClient",
+    "PrimeLocationLocationAPI",
     "PropertyReportService",
     "RightmoveLocationAPI",
     "ZooplaLocationAPI",
@@ -88,6 +98,8 @@ __all__ = [
     "fetch_nhfs_listings",
     "fetch_onthemarket_listing",
     "fetch_onthemarket_listings",
+    "fetch_primelocation_listing",
+    "fetch_primelocation_listings",
     "fetch_zoopla_listing",
     "fetch_zoopla_listings",
     "generate_insights",
@@ -105,6 +117,8 @@ __all__ = [
     "OnTheMarketListing",
     "OnTheMarketListingDetail",
     "PostcodeResult",
+    "PrimeLocationListing",
+    "PrimeLocationListingDetail",
     "PPDCompsResponse",
     "PPDTransaction",
     "PPDTransactionRecord",

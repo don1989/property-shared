@@ -458,6 +458,76 @@ if _ZOOPLA_ENABLED:
         return _slim(result.model_dump(mode="json", exclude_none=True))
 
 
+# PrimeLocation tools are env-gated for the same reason as Zoopla: it is a
+# ZPG sibling behind the same Cloudflare bot gate, so datacenter ASNs get
+# blocked regardless of curl_cffi profile. Set PRIMELOCATION_ENABLED=true
+# (and PRIMELOCATION_PROXY_URL=... if needed) to register them.
+_PRIMELOCATION_ENABLED = (
+    _os.environ.get("PRIMELOCATION_ENABLED") or "true"
+).strip().lower() in ("true", "1", "yes", "on")
+
+
+if _PRIMELOCATION_ENABLED:
+
+    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
+    async def primelocation_search(
+        postcode: str,
+        listing_type: str = "sale",
+        radius: float | None = None,
+        property_type: str | None = None,
+        new_build: bool = False,
+        min_bedrooms: int | None = None,
+        max_price: int | None = None,
+        max_pages: int = 1,
+    ) -> list[dict]:
+        """Fetch PrimeLocation listings for a postcode.
+
+        listing_type: "sale" or "rent". property_type: F=flat, D=detached,
+        S=semi, T=terraced. new_build=True restricts to new-builds (uses
+        PrimeLocation's /new-homes/for-sale/ index). Uses curl_cffi (TLS
+        fingerprint impersonation) to defeat Cloudflare; no browser
+        required.
+        """
+        max_pages = max(1, min(max_pages, _MAX_PAGES))  # clamp fan-out (audit C1b)
+        import anyio
+        from property_core import PrimeLocationLocationAPI, fetch_primelocation_listings
+        loc_api = PrimeLocationLocationAPI()
+        search_url = loc_api.build_search_url(
+            postcode,
+            property_type=listing_type,
+            building_type=property_type,
+            new_build=new_build,
+            min_bedrooms=min_bedrooms,
+            max_price=max_price,
+            radius=radius,
+        )
+        proxy = (_os.environ.get("PRIMELOCATION_PROXY_URL") or "").strip() or None
+        listings = await anyio.to_thread.run_sync(
+            lambda: fetch_primelocation_listings(search_url, max_pages=max_pages, proxy=proxy)
+        )
+        return [_slim(l.model_dump(mode="json", exclude_none=True)) for l in listings]
+
+
+    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
+    def primelocation_listing(
+        property_url_or_id: str,
+        include_images: bool = False,
+    ) -> dict:
+        """Full detail for a single PrimeLocation listing (URL or numeric ID).
+
+        Returns price, address, postcode, tenure, council tax band,
+        bedrooms/bathrooms/floor area, agent info, listing status,
+        condition, and breadcrumb path. Pass include_images=True to keep
+        the photo gallery in the response.
+        """
+        from property_core import fetch_primelocation_listing
+        proxy = (_os.environ.get("PRIMELOCATION_PROXY_URL") or "").strip() or None
+        result = fetch_primelocation_listing(property_url_or_id, proxy=proxy)
+        if include_images:
+            return result.model_dump(mode="json", exclude_none=True)
+        return _slim(result.model_dump(mode="json", exclude_none=True))
+
+
 def _otm_search_dict(listing) -> dict:
     """Slim an OnTheMarket search card and re-expose photos as ``photo_urls``
     (matching the detail tool / Rightmove shape)."""

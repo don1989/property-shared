@@ -40,6 +40,10 @@ from property_core.models.newhomesforsale import (
 from property_core.models.rightmove import RightmoveListingDetail, RightmoveListing
 from property_core.models.zoopla import ZooplaListing, ZooplaListingDetail
 from property_core.models.onthemarket import OnTheMarketListing, OnTheMarketListingDetail
+from property_core.models.primelocation import (
+    PrimeLocationListing,
+    PrimeLocationListingDetail,
+)
 
 __all__ = [
     "BlockAnalysisResponse",
@@ -66,6 +70,8 @@ __all__ = [
     "PPDTransaction",
     "PPDTransactionRecord",
     "PostcodeResult",
+    "PrimeLocationListing",
+    "PrimeLocationListingDetail",
     "PropertyReport",
     "RentalAnalysis",
     "RightmoveListing",

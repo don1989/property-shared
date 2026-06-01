@@ -11,6 +11,7 @@ Property Shared is a FastAPI service + pure-Python core library for UK property 
 - **EPC** - Energy Performance Certificates (requires API credentials)
 - **Rightmove** - Property listings via scraping with built-in politeness
 - **Zoopla** - Search-result listings via headless Playwright (search only — listing detail pages blocked by Cloudflare Turnstile; requires `[planning]` extra)
+- **PrimeLocation** - Search-result listings + listing detail via `curl_cffi` (TLS impersonation defeats Cloudflare). ZPG sibling of Zoopla: shares the `lid.zoocdn.com` CDN, ld+json `RealEstateListing`/`BreadcrumbList`, and `NtsInfo` tenure/council-tax block, but ships an older front-end template (`ListingsSearchResultsCard_styles_*` / `NtsInfo_styles_*` class names)
 - **OnTheMarket** - Search-result listings + listing detail via plain `requests`; tenure / lease / EPC / council tax extracted from the Key information section
 - **Planning** - UK council planning applications via vision-guided browser automation (99 verified councils)
 - **Stamp Duty** - SDLT calculator with April 2025 bands, additional property/FTB/non-resident surcharges
@@ -31,6 +32,8 @@ uv run --env-file .env uvicorn app.main:app --reload  # dev mode with reload
 uv run --extra cli property-cli meta
 uv run --extra cli property-cli ppd comps "SW1A 1AA" --months 24
 uv run --extra cli property-cli rightmove search-url "SW1A 1AA"
+uv run --extra cli property-cli primelocation search-url "SW1A 1AA"
+uv run --extra cli property-cli primelocation listings "https://www.primelocation.com/for-sale/property/london/"
 uv run --extra cli property-cli calc stamp-duty 300000
 uv run --extra cli property-cli ppd blocks "B1 1AA"
 uv run --extra cli property-cli companies search "Tesco"
@@ -90,6 +93,8 @@ property_core/              # Pure Python library (no FastAPI, no DB assumptions
 ├── onthemarket_location.py # Transport: OnTheMarket search URL builder (sync)
 ├── zoopla_scraper.py       # Transport: Zoopla search scraper (sync, Playwright) → typed models
 ├── zoopla_location.py      # Transport: Zoopla search URL builder (sync)
+├── primelocation_scraper.py  # Transport: PrimeLocation search + detail scraper (sync, curl_cffi) → typed models
+├── primelocation_location.py # Transport: PrimeLocation search URL builder (sync)
 ├── postcode_client.py      # Transport: postcodes.io → typed PostcodeResult model
 ├── companies_house_client.py # Transport: Companies House API (sync httpx, basic auth)
 ├── ppd_service.py          # Domain service: PPD comps, search, stats (sync)
@@ -150,6 +155,8 @@ Copy `.env.example` to `.env`. Key variables:
 - `PLAYWRIGHT_PROXY_URL` - Optional residential proxy for planning scraper (councils block datacenter IPs)
 - `COMPANIES_HOUSE_API_KEY` - Required for Companies House endpoints (free key from https://developer.company-information.service.gov.uk/)
 - `COMPANIES_HOUSE_SANDBOX` - Set to `true` to use sandbox API (default `false`)
+- `ZOOPLA_ENABLED` / `ZOOPLA_PROXY_URL` - Toggle Zoopla scraping (default enabled) and route it through a residential proxy on Cloudflare-blocked egress IPs
+- `PRIMELOCATION_ENABLED` / `PRIMELOCATION_PROXY_URL` - Same toggle/proxy pair for PrimeLocation (a ZPG sibling behind the same Cloudflare gate; default enabled)
 
 ## Using as a Library
 
@@ -161,6 +168,7 @@ from property_core import PPDService, PlanningService, PropertyReportService
 from property_core import PricePaidDataClient, EPCClient, RightmoveLocationAPI, PostcodeClient
 from property_core import CompaniesHouseClient, analyze_blocks
 from property_core import fetch_listings, fetch_listing, analyze_rentals
+from property_core import PrimeLocationLocationAPI, fetch_primelocation_listings, fetch_primelocation_listing
 from property_core import calculate_yield, calculate_stamp_duty
 from property_core import enrich_comps_with_epc, compute_enriched_stats
 
