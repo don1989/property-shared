@@ -308,6 +308,98 @@ def test_parse_listing_html_full():
 
 
 # ---------------------------------------------------------------------------
+# Regression tests for review findings
+# ---------------------------------------------------------------------------
+
+
+def test_parse_amenity_sqft_handles_period_after_sq():
+    """PrimeLocation cards emit floor area as 'sq. ft' (with a period), not
+    just 'sq ft'. The card parser must handle both so floor_area_sqft is not
+    silently dropped for every real listing."""
+    from property_core.models.primelocation import _parse_amenity_sqft
+
+    assert _parse_amenity_sqft(["2 beds", "2,304 sq. ft"]) == 2304
+    assert _parse_amenity_sqft(["1,218 sq ft"]) == 1218  # bare form still works
+
+
+def test_detail_model_omits_unsupported_zoopla_only_booleans():
+    """PrimeLocation's older template never emits chainFree/hasEpc/etc. in its
+    RSC stream (verified against live + fixture HTML), so the detail model must
+    not carry these always-None fields copied from ZooplaListingDetail — they
+    would mislead a consumer filtering on e.g. chain_free is True."""
+    from property_core.models.primelocation import PrimeLocationListingDetail
+
+    fields = set(PrimeLocationListingDetail.model_fields)
+    for dead in (
+        "chain_free",
+        "has_epc",
+        "has_floorplan",
+        "is_retirement_home",
+        "is_shared_ownership",
+    ):
+        assert dead not in fields, f"{dead} can never be populated for PrimeLocation"
+
+
+def test_fetch_listings_stops_and_dedupes_when_site_clamps_pagination(monkeypatch):
+    """If the site clamps an out-of-range pn back to the last valid page
+    (returning the same cards again), pagination must stop instead of looping
+    forever and piling up duplicate listings."""
+    from property_core import primelocation_scraper as ps
+    from urllib.parse import parse_qsl, urlparse
+
+    def page(ids):
+        cards = "".join(
+            f'<div class="ListingsSearchResultsCard_styles_listingRowStyle__x" '
+            f'id="listing_{i}">'
+            f'<a href="/for-sale/details/{i}/"></a>'
+            f'<p class="ListingsSearchResultsCard_styles_priceTextStyle__z" '
+            f'data-testid="listing-price">£{i}50,000</p>'
+            f"</div>"
+            for i in ids
+        )
+        return f"<html><body>{cards}</body></html>"
+
+    monkeypatch.setattr(
+        ps, "_fetch_with_profile_rotation", lambda **kw: (object(), page([1, 2]))
+    )
+
+    calls = {"n": 0}
+
+    def fake_get(session, url, *, timeout):
+        calls["n"] += 1
+        if calls["n"] > 6:
+            raise AssertionError("pagination did not terminate on clamped pages")
+        pn = int(dict(parse_qsl(urlparse(url).query)).get("pn", "1"))
+        # pn=2 returns genuinely new cards; pn>=3 is clamped back to page 2.
+        return page([3, 4])
+
+    monkeypatch.setattr(ps, "_get", fake_get)
+
+    listings = ps.fetch_listings(
+        "https://www.primelocation.com/for-sale/property/london/",
+        rate_limit_seconds=0,
+    )
+    assert [l.id for l in listings] == ["1", "2", "3", "4"]
+
+
+def test_decode_rsc_preserves_literal_utf8_and_decodes_unicode_escapes():
+    """The RSC decoder must decode JSON \\uXXXX escapes AND preserve literal
+    UTF-8 bytes. The old encode().decode('unicode_escape') mangled real UTF-8
+    (e.g. '£' -> 'Â£'), corrupting addresses / agent names / price strings."""
+    from property_core.primelocation_scraper import _decode_rsc
+
+    html = (
+        'self.__next_f.push([1,"\\"displayAddress\\":\\"Caf\\u00e9 £900,000\\""])'
+    )
+    decoded = _decode_rsc(html)
+    # Exact match: the buggy unicode_escape path yields 'Café Â£900,000'
+    # ('£900,000' is still a substring of that, so a loose `in` check passes
+    # even when corrupted — assert the full string instead).
+    assert decoded == '"displayAddress":"Café £900,000"'
+    assert "Â" not in decoded
+
+
+# ---------------------------------------------------------------------------
 # Live network tests (gated)
 # ---------------------------------------------------------------------------
 

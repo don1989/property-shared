@@ -60,7 +60,9 @@ def _parse_amenity_int(amenities: List[str], keyword: str) -> Optional[int]:
 
 
 def _parse_amenity_sqft(amenities: List[str]) -> Optional[int]:
-    pattern = re.compile(r"^([\d,]+)\s*sq\s*ft\b", re.I)
+    # PrimeLocation cards render area as 'sq. ft' (with a period) as well as
+    # 'sq ft'; the optional '\.?' matches both (mirrors _FLOOR_AREA_RE below).
+    pattern = re.compile(r"^([\d,]+)\s*sq\.?\s*ft\b", re.I)
     for item in amenities:
         m = pattern.match(item.strip())
         if m:
@@ -182,19 +184,6 @@ def _coerce_str(val: Any) -> Optional[str]:
     return str(val)
 
 
-def _coerce_bool(val: Any) -> Optional[bool]:
-    if val is None or val == "":
-        return None
-    if isinstance(val, bool):
-        return val
-    s = str(val).strip().lower()
-    if s in ("true", "1", "yes"):
-        return True
-    if s in ("false", "0", "no"):
-        return False
-    return None
-
-
 def _ld_additional_property(real_estate: Dict[str, Any], name: str) -> Optional[str]:
     """Pluck a ``{name, value}`` entry from ld+json ``additionalProperty``."""
     items = real_estate.get("additionalProperty") or []
@@ -267,11 +256,6 @@ class PrimeLocationListingDetail(BaseModel):
     listing_status: Optional[str] = None
     listing_condition: Optional[str] = None
     furnished_state: Optional[str] = None
-    chain_free: Optional[bool] = None
-    has_epc: Optional[bool] = None
-    has_floorplan: Optional[bool] = None
-    is_retirement_home: Optional[bool] = None
-    is_shared_ownership: Optional[bool] = None
     tenure: Optional[str] = None
     council_tax_band: Optional[str] = None
     agent_name: Optional[str] = None
@@ -365,11 +349,6 @@ class PrimeLocationListingDetail(BaseModel):
             listing_status=_coerce_str(taxonomy.get("listingStatus")),
             listing_condition=_coerce_str(taxonomy.get("listingCondition")),
             furnished_state=_coerce_str(taxonomy.get("furnishedState")),
-            chain_free=_coerce_bool(taxonomy.get("chainFree")),
-            has_epc=_coerce_bool(taxonomy.get("hasEpc")),
-            has_floorplan=_coerce_bool(taxonomy.get("hasFloorplan")),
-            is_retirement_home=_coerce_bool(taxonomy.get("isRetirementHome")),
-            is_shared_ownership=_coerce_bool(taxonomy.get("isSharedOwnership")),
             tenure=tenure,
             council_tax_band=council_tax_band,
             agent_name=_coerce_str(taxonomy.get("branchName")),

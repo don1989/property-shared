@@ -171,7 +171,6 @@ def fetch_listings(
         timeout=timeout,
     )
 
-    listings: List[PrimeLocationListing] = []
     page_listings = _parse_search_html(first_html)
     if not page_listings:
         raise PrimeLocationError(
@@ -179,17 +178,28 @@ def fetch_listings(
             f"{len(first_html)} bytes but no listing-card rows were found — "
             "PrimeLocation may have changed its markup."
         )
-    listings.extend(page_listings)
+
+    listings: List[PrimeLocationListing] = []
+    seen_ids: set[str] = set()
+
+    def _add_new(page: List[PrimeLocationListing]) -> int:
+        """Append listings whose id we haven't seen; return how many were new."""
+        added = 0
+        for listing in page:
+            if listing.id not in seen_ids:
+                seen_ids.add(listing.id)
+                listings.append(listing)
+                added += 1
+        return added
+
+    _add_new(page_listings)
 
     page_counter = 1
     seen_pages: set[str] = {search_url}
-    next_url: str | None = (
-        _next_page_url(search_url, starting_page + page_counter)
-        if (max_pages is None or page_counter < max_pages)
-        else None
-    )
-
-    while next_url and next_url not in seen_pages:
+    while max_pages is None or page_counter < max_pages:
+        next_url = _next_page_url(search_url, starting_page + page_counter)
+        if next_url in seen_pages:
+            break
         seen_pages.add(next_url)
         if rate_limit_seconds:
             time.sleep(rate_limit_seconds)
@@ -197,15 +207,13 @@ def fetch_listings(
 
         html = _get(session, next_url, timeout=timeout)
         page_listings = _parse_search_html(html)
-        listings.extend(page_listings)
-
-        if max_pages is not None and page_counter >= max_pages:
+        if not page_listings:
             break
-        next_url = (
-            _next_page_url(search_url, starting_page + page_counter)
-            if page_listings
-            else None
-        )
+        # Some ZPG search pages clamp an out-of-range pn back to the last valid
+        # page, re-serving the same cards. Stop once a page adds no new ids,
+        # otherwise an unbounded (max_pages=None) walk would loop forever.
+        if _add_new(page_listings) == 0:
+            break
 
     return listings
 
@@ -594,13 +602,25 @@ def _extract_ldjson_blocks(soup: BeautifulSoup) -> tuple[Dict[str, Any], Dict[st
 
 
 def _decode_rsc(html: str) -> str:
-    """Concatenate and unescape every ``self.__next_f.push([...])`` chunk."""
+    """Concatenate and unescape every ``self.__next_f.push([...])`` chunk.
+
+    Each chunk is the body of a JSON-encoded string, so it is decoded by
+    wrapping it back in quotes and running ``json.loads`` — this resolves
+    ``\\uXXXX`` / ``\\n`` / ``\\"`` escapes while leaving literal UTF-8
+    bytes intact. The previous ``encode().decode('unicode_escape')`` path
+    round-tripped through Latin-1 and corrupted real UTF-8 (e.g. ``£`` ->
+    ``Â£``), garbling addresses, agent names and price strings. The lenient
+    old method is kept only as a fallback for any chunk JSON can't parse.
+    """
     out: list[str] = []
     for raw_chunk in _RSC_CHUNK_RE.findall(html):
         try:
-            out.append(raw_chunk.encode().decode("unicode_escape"))
-        except (UnicodeDecodeError, ValueError):
-            continue
+            out.append(json.loads(f'"{raw_chunk}"'))
+        except (json.JSONDecodeError, ValueError):
+            try:
+                out.append(raw_chunk.encode().decode("unicode_escape"))
+            except (UnicodeDecodeError, ValueError):
+                continue
     return "".join(out)
 
 
