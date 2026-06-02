@@ -36,6 +36,11 @@ from property_core.onthemarket_scraper import (
     fetch_listing as fetch_onthemarket_listing,
     fetch_listings as fetch_onthemarket_listings,
 )
+from property_core.primelocation_location import PrimeLocationLocationAPI
+from property_core.primelocation_scraper import (
+    fetch_listing as fetch_primelocation_listing,
+    fetch_listings as fetch_primelocation_listings,
+)
 from property_core.zoopla_location import ZooplaLocationAPI
 from property_core.zoopla_scraper import (
     fetch_listing as fetch_zoopla_listing,
@@ -765,6 +770,119 @@ def zoopla_listing(
     table.add_row("Chain free", str(detail.get("chain_free")) if detail.get("chain_free") is not None else "—")
     table.add_row("Has EPC", str(detail.get("has_epc")) if detail.get("has_epc") is not None else "—")
     table.add_row("Has floorplan", str(detail.get("has_floorplan")) if detail.get("has_floorplan") is not None else "—")
+    table.add_row("Agent", detail.get("agent_name") or "—")
+    table.add_row("Branch ID", str(detail.get("branch_id") or "—"))
+    table.add_row("Date posted", detail.get("date_posted") or "—")
+    table.add_row("Images", str(len(detail.get("images") or [])))
+    rprint(table)
+
+    desc = detail.get("description")
+    if desc:
+        rprint("\n[bold]Description:[/bold]")
+        rprint(desc[:1500] + ("..." if len(desc) > 1500 else ""))
+
+
+primelocation = typer.Typer(
+    help="PrimeLocation commands (search + detail via curl_cffi TLS impersonation)"
+)
+app.add_typer(primelocation, name="primelocation")
+
+
+@primelocation.command("search-url")
+def primelocation_search_url(
+    postcode: list[str] = typer.Argument(..., help="Postcode or area name"),
+    property_type: str = typer.Option("sale"),
+    building_type: Optional[str] = typer.Option(None, "--building-type", help="F=flat, D=detached, S=semi, T=terraced"),
+    new_build: bool = typer.Option(False, "--new-build", help="Restrict to new-build properties (uses PrimeLocation's /new-homes/for-sale/ index)."),
+    radius: Optional[float] = typer.Option(None, help="Search radius in miles"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    postcode_value = _join_tokens(postcode)
+    http = _maybe_http_client(api_url)
+    if http:
+        params: dict = {"postcode": postcode_value, "property_type": property_type}
+        if building_type:
+            params["building_type"] = building_type
+        if new_build:
+            params["new_build"] = "true"
+        if radius is not None:
+            params["radius"] = radius
+        data = http.get("/v1/primelocation/search-url", params=params)
+        typer.echo(data.get("url"))
+    else:
+        url = PrimeLocationLocationAPI().build_search_url(
+            postcode_value,
+            property_type=property_type,
+            building_type=building_type,
+            new_build=new_build,
+            radius=radius,
+        )
+        typer.echo(url)
+
+
+@primelocation.command("listings")
+def primelocation_listings(
+    search_url: str = typer.Argument(...),
+    max_pages: Optional[int] = typer.Option(1),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    """Fetch PrimeLocation search results via curl_cffi (TLS impersonation)."""
+    http = _maybe_http_client(api_url)
+    if http:
+        data = http.get(
+            "/v1/primelocation/listings",
+            params={"search_url": search_url, "max_pages": max_pages},
+        )
+        listings = data.get("results", [])
+    else:
+        listings = [l.model_dump() for l in fetch_primelocation_listings(search_url, max_pages=max_pages)]
+
+    table = Table(title=f"PrimeLocation listings ({len(listings)})")
+    table.add_column("Price", justify="right")
+    table.add_column("Beds", justify="right")
+    table.add_column("Baths", justify="right")
+    table.add_column("SqFt", justify="right")
+    table.add_column("Address")
+    for item in listings[:20]:
+        table.add_row(
+            f"£{item.get('price'):,}" if item.get("price") else "—",
+            str(item.get("bedrooms") or "—"),
+            str(item.get("bathrooms") or "—"),
+            str(item.get("floor_area_sqft") or "—"),
+            item.get("address") or "",
+        )
+    rprint(table)
+    if len(listings) > 20:
+        typer.echo(f"...and {len(listings) - 20} more")
+
+
+@primelocation.command("listing")
+def primelocation_listing_detail(
+    url_or_id: str = typer.Argument(..., help="PrimeLocation property URL or numeric ID"),
+    api_url: Optional[str] = typer.Option(None, help="Call API instead of core"),
+) -> None:
+    """Fetch full details for an individual PrimeLocation listing."""
+    http = _maybe_http_client(api_url)
+    if http:
+        prop_id = url_or_id.strip().rstrip("/").split("/")[-1] if "/" in url_or_id else url_or_id
+        data = http.get(f"/v1/primelocation/listing/{prop_id}")
+        detail = data.get("result", {})
+    else:
+        detail = fetch_primelocation_listing(url_or_id).model_dump()
+
+    table = Table(title=f"PrimeLocation: {detail.get('address') or url_or_id}")
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    table.add_row("Price", f"£{detail['price']:,}" if detail.get("price") else "—")
+    table.add_row("Display price", detail.get("display_price") or "—")
+    table.add_row("Bedrooms", str(detail.get("bedrooms") or "—"))
+    table.add_row("Bathrooms", str(detail.get("bathrooms") or "—"))
+    table.add_row("Floor area", detail.get("floor_area") or "—")
+    table.add_row("Postcode", detail.get("postcode") or "—")
+    table.add_row("Listing status", detail.get("listing_status") or "—")
+    table.add_row("Listing condition", detail.get("listing_condition") or "—")
+    table.add_row("Tenure", detail.get("tenure") or "—")
+    table.add_row("Council tax band", detail.get("council_tax_band") or "—")
     table.add_row("Agent", detail.get("agent_name") or "—")
     table.add_row("Branch ID", str(detail.get("branch_id") or "—"))
     table.add_row("Date posted", detail.get("date_posted") or "—")

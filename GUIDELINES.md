@@ -48,6 +48,8 @@ Three-layer pattern:
 | `onthemarket_scraper.py` | OnTheMarket listings + detail scraper (requests + BeautifulSoup) |
 | `zoopla_location.py` | Zoopla search URL builder |
 | `zoopla_scraper.py` | Zoopla search scraper (Playwright; detail blocked by Cloudflare) |
+| `primelocation_location.py` | PrimeLocation search URL builder |
+| `primelocation_scraper.py` | PrimeLocation search + detail scraper (curl_cffi + BeautifulSoup) |
 | `stamp_duty.py` | SDLT calculator (April 2025 bands) |
 | `yield_service.py` | Yield analysis: PPD sales + Rightmove rentals |
 

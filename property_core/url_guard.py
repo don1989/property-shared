@@ -24,6 +24,7 @@ ALLOWED_SUFFIXES: tuple[str, ...] = (
     "zoopla.co.uk",
     "onthemarket.com",
     "newhomesforsale.co.uk",
+    "primelocation.com",
 )
 
 

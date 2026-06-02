@@ -163,6 +163,34 @@ def test_profiles_to_try_disabled_with_empty_fallbacks():
     assert _profiles_to_try("chrome120", ()) == ["chrome120"]
 
 
+def test_supported_profiles_drops_unknown_names():
+    """Profile names the installed curl_cffi doesn't know are filtered out,
+    while order of the recognised ones is preserved."""
+    from property_core.zoopla_scraper import _supported_profiles
+    out = _supported_profiles(["chrome120", "not_a_real_profile", "firefox133"])
+    assert out == ["chrome120", "firefox133"]
+
+
+def test_supported_profiles_falls_back_when_all_unknown():
+    """If filtering would drop everything, the input is returned unchanged so
+    the request layer (not the filter) surfaces the failure."""
+    from property_core.zoopla_scraper import _supported_profiles
+    bogus = ["nope1", "nope2"]
+    assert _supported_profiles(bogus) == bogus
+
+
+def test_default_profiles_are_supported_by_installed_curl_cffi():
+    """Guard against pinning a default/fallback profile that the locked
+    curl_cffi build doesn't actually ship."""
+    from property_core.zoopla_scraper import (
+        _DEFAULT_IMPERSONATE,
+        _FALLBACK_PROFILES,
+        _supported_profiles,
+    )
+    wanted = [_DEFAULT_IMPERSONATE, *_FALLBACK_PROFILES]
+    assert _supported_profiles(wanted) == wanted
+
+
 def test_fetch_with_profile_rotation_falls_through_to_working_profile(monkeypatch):
     """When the first profile is Cloudflare-blocked, rotation must try the
     next profile and return its (session, html) on success."""
