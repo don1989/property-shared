@@ -21,6 +21,7 @@ import os
 import time
 from collections import defaultdict, deque
 from typing import Any, Awaitable, Callable
+from urllib.parse import parse_qs
 
 Scope = dict
 Receive = Callable[[], Awaitable[Any]]
@@ -80,6 +81,30 @@ class _SlidingWindowLimiter:
             del self._hits[k]
 
 
+def _extract_token(scope: Scope) -> str:
+    """Pull the API token from either the ``Authorization: Bearer`` header or a
+    ``?key=`` / ``?api_key=`` query parameter.
+
+    The property-agent app sends the header. Interactive MCP clients (the
+    claude.ai connector, ChatGPT) can only configure OAuth or a plain URL, not a
+    static header, so they pass the key in the connector URL instead. Trade-off:
+    a URL-borne key appears in access logs - acceptable for a personal connector,
+    and the key is rotatable.
+    """
+    headers = dict(scope.get("headers", []))
+    auth = headers.get(b"authorization", b"").decode("latin-1")
+    if auth[:7].lower() == "bearer ":
+        return auth[7:]
+    qs = scope.get("query_string", b"")
+    if qs:
+        params = parse_qs(qs.decode("latin-1"))
+        for name in ("key", "api_key"):
+            values = params.get(name)
+            if values and values[0]:
+                return values[0]
+    return ""
+
+
 async def _respond(send: Send, status: int, body: bytes) -> None:
     await send(
         {
@@ -112,9 +137,7 @@ class McpGuard:
         # Auth FIRST: reject unauthenticated traffic at 401 before it can
         # consume a (possibly shared-IP) rate-limit budget.
         if self.api_key is not None:
-            headers = dict(scope.get("headers", []))
-            auth = headers.get(b"authorization", b"").decode("latin-1")
-            token = auth[7:] if auth[:7].lower() == "bearer " else ""
+            token = _extract_token(scope)
             if not token or not hmac.compare_digest(token, self.api_key):
                 await _respond(send, 401, b"Unauthorized")
                 return

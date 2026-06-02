@@ -20,8 +20,14 @@ class _Recorder:
         await send({"type": "http.response.body", "body": b"ok"})
 
 
-def _scope(headers=None, client=("203.0.113.9", 1234)):
-    return {"type": "http", "path": "/mcp", "headers": headers or [], "client": client}
+def _scope(headers=None, client=("203.0.113.9", 1234), query_string=b""):
+    return {
+        "type": "http",
+        "path": "/mcp",
+        "headers": headers or [],
+        "client": client,
+        "query_string": query_string,
+    }
 
 
 async def _drive(guard, scope):
@@ -78,6 +84,34 @@ def test_rejects_wrong_bearer(monkeypatch):
     guard = McpGuard(app)
     headers = [(b"authorization", b"Bearer nope")]
     sent = asyncio.run(_drive(guard, _scope(headers)))
+    assert app.ran is False
+    assert _status(sent) == 401
+
+
+def test_accepts_key_query_param(monkeypatch):
+    # The claude.ai connector can't set a header, so it passes ?key= in the URL.
+    monkeypatch.setenv("MCP_API_KEY", "s3cret")
+    app = _Recorder()
+    guard = McpGuard(app)
+    sent = asyncio.run(_drive(guard, _scope(query_string=b"key=s3cret")))
+    assert app.ran is True
+    assert _status(sent) == 200
+
+
+def test_accepts_api_key_query_param(monkeypatch):
+    monkeypatch.setenv("MCP_API_KEY", "s3cret")
+    app = _Recorder()
+    guard = McpGuard(app)
+    sent = asyncio.run(_drive(guard, _scope(query_string=b"api_key=s3cret")))
+    assert app.ran is True
+    assert _status(sent) == 200
+
+
+def test_rejects_wrong_query_param(monkeypatch):
+    monkeypatch.setenv("MCP_API_KEY", "s3cret")
+    app = _Recorder()
+    guard = McpGuard(app)
+    sent = asyncio.run(_drive(guard, _scope(query_string=b"key=nope")))
     assert app.ran is False
     assert _status(sent) == 401
 
