@@ -20,10 +20,10 @@ class _Recorder:
         await send({"type": "http.response.body", "body": b"ok"})
 
 
-def _scope(headers=None, client=("203.0.113.9", 1234), query_string=b""):
+def _scope(headers=None, client=("203.0.113.9", 1234), query_string=b"", path="/mcp"):
     return {
         "type": "http",
-        "path": "/mcp",
+        "path": path,
         "headers": headers or [],
         "client": client,
         "query_string": query_string,
@@ -57,6 +57,19 @@ def test_open_when_no_key_set(monkeypatch):
     sent = asyncio.run(_drive(guard, _scope()))
     assert app.ran is True
     assert _status(sent) == 200
+
+
+def test_non_mcp_paths_pass_through_unguarded(monkeypatch):
+    # /health (platform healthcheck), /metrics, /docs must NOT be auth-gated,
+    # even when a key is set - otherwise the healthcheck 401s and the container
+    # is rolled back as unhealthy (the Property MCP deploy failure).
+    monkeypatch.setenv("MCP_API_KEY", "s3cret")
+    for p in ("/health", "/metrics", "/", "/docs"):
+        app = _Recorder()
+        guard = McpGuard(app)
+        sent = asyncio.run(_drive(guard, _scope(path=p)))
+        assert app.ran is True, f"{p} should pass through"
+        assert _status(sent) == 200
 
 
 def test_rejects_missing_bearer_when_key_set(monkeypatch):

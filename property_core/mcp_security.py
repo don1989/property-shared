@@ -134,6 +134,17 @@ class McpGuard:
             await self.app(scope, receive, send)
             return
 
+        # Only guard the MCP endpoint. Everything else must pass through: the
+        # platform healthcheck hits /health (guarding it 401s the check and the
+        # container is rolled back as unhealthy), /metrics has its own auth, and
+        # /docs is disabled in prod. When this guard wraps just the /mcp handler
+        # (app/main.py) the check is a no-op; when it wraps the whole app
+        # (property_app) it is essential.
+        path = scope.get("path", "")
+        if not (path == "/mcp" or path.startswith("/mcp/")):
+            await self.app(scope, receive, send)
+            return
+
         # Auth FIRST: reject unauthenticated traffic at 401 before it can
         # consume a (possibly shared-IP) rate-limit budget.
         if self.api_key is not None:
