@@ -339,6 +339,9 @@ def _get_with_retries(
 # --- Listing detail helpers ---
 
 _PAGE_MODEL_RE = re.compile(r"window\.__PAGE_MODEL\s*=\s*(.+);")
+# Marks Rightmove's newer Next.js page layout. Quote-tolerant so a future markup
+# tweak from double to single quotes doesn't silently stop matching.
+_NEXT_DATA_RE = re.compile(r"""id=["']__NEXT_DATA__["']""")
 
 
 def _normalize_property_url(url_or_id: str) -> str:
@@ -381,7 +384,7 @@ def _extract_page_model(html: str) -> Dict[str, Any]:
         # Those won't gain it on retry, so raise a distinct error the retry loop
         # in fetch_listing does NOT retry, rather than spending five refetches
         # treating it as a transient bot-challenge.
-        if 'id="__NEXT_DATA__"' in html:
+        if _NEXT_DATA_RE.search(html):
             raise RightmoveError(
                 "Rightmove listing uses an unsupported page format (no PAGE_MODEL; "
                 "likely a commercial/land listing or the newer __NEXT_DATA__ layout)"

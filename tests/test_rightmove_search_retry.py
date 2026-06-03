@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 
+from bs4 import BeautifulSoup
+
 from property_core import rightmove_scraper as rm
 
 
@@ -111,3 +113,24 @@ def test_detail_without_page_model_but_with_next_data_raises_unsupported() -> No
         assert "unsupported page format" in str(exc)
     else:  # pragma: no cover - the call must raise
         raise AssertionError("expected RightmoveError for an unsupported detail page")
+
+
+def test_detail_next_data_detection_tolerates_single_quotes() -> None:
+    # The __NEXT_DATA__ marker check must not be tied to double quotes; a markup
+    # tweak to single quotes should still be recognised as the new layout.
+    html = "<html><body><script id='__NEXT_DATA__'>{}</script></body></html>"
+    try:
+        rm._extract_page_model(html)
+    except rm.RightmoveError as exc:
+        assert "unsupported page format" in str(exc)
+    else:  # pragma: no cover - the call must raise
+        raise AssertionError("expected RightmoveError for single-quoted __NEXT_DATA__")
+
+
+def test_not_found_detector_false_for_soft_block_and_normal_pages() -> None:
+    # The not-found detector must stay narrow: a Cloudflare/bot interstitial and
+    # a normal results page must NOT be flagged, so they still get retried /
+    # parsed instead of failing fast. Only the genuine 404 page is detected.
+    assert rm._is_rightmove_not_found(BeautifulSoup(_SOFT_BLOCK_PAGE, "html.parser")) is False
+    assert rm._is_rightmove_not_found(BeautifulSoup(_valid_search_page(), "html.parser")) is False
+    assert rm._is_rightmove_not_found(BeautifulSoup(_NOT_FOUND_PAGE, "html.parser")) is True
