@@ -25,6 +25,7 @@ Reference: https://www.gov.uk/guidance/about-the-price-paid-data
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 import urllib.error
@@ -39,11 +40,15 @@ S3_BASE = "http://prod2.publicdata.landregistry.gov.uk.s3-website-eu-west-1.amaz
 LINKED_DATA_BASE = "https://landregistry.data.gov.uk"
 SPARQL_ENDPOINT = "https://landregistry.data.gov.uk/landregistry/sparql"
 
-SPARQL_RETRY_ATTEMPTS = 3
-SPARQL_RETRY_BACKOFF_SECONDS = 0.5
-# Cap on a server-sent Retry-After so one large value can't stall the worker
-# thread for an unreasonable amount of time.
-SPARQL_RETRY_MAX_BACKOFF_SECONDS = 10.0
+# The Land Registry SPARQL endpoint rate-limits by volume, so concurrent comps
+# calls that back off in lockstep just re-trigger the same 429 in unison. Give
+# each call more attempts, a longer ceiling, and jittered sleeps so retriers
+# spread out instead of stampeding (the dominant source of 429s in production).
+SPARQL_RETRY_ATTEMPTS = 5
+SPARQL_RETRY_BACKOFF_SECONDS = 1.0
+# Cap on a server-sent Retry-After (and on our own backoff) so one large value
+# can't stall the worker thread for an unreasonable amount of time.
+SPARQL_RETRY_MAX_BACKOFF_SECONDS = 30.0
 
 
 def _retry_after_seconds(value: Optional[str]) -> Optional[float]:
@@ -333,10 +338,14 @@ class PricePaidDataClient:
 
             if attempt < SPARQL_RETRY_ATTEMPTS:
                 backoff = SPARQL_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
-                # Honour a server-sent Retry-After (delta-seconds), capped.
+                # Honour a server-sent Retry-After (delta-seconds) as a floor.
                 if retry_after is not None:
-                    backoff = min(max(backoff, retry_after), SPARQL_RETRY_MAX_BACKOFF_SECONDS)
-                time.sleep(backoff)
+                    backoff = max(backoff, retry_after)
+                backoff = min(backoff, SPARQL_RETRY_MAX_BACKOFF_SECONDS)
+                # Half jitter: sleep a random amount in [backoff/2, backoff] so
+                # callers that hit the limit together don't retry in lockstep
+                # and immediately re-exhaust it.
+                time.sleep(random.uniform(backoff / 2, backoff))
 
         if last_exc:
             raise last_exc

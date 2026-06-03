@@ -257,9 +257,30 @@ def _get_search_results(
     raise last_soft_block
 
 
+def _is_rightmove_not_found(soup: BeautifulSoup) -> bool:
+    """True when Rightmove served its 'page not found' page rather than results.
+
+    Distinct from a Cloudflare/bot interstitial: this is a genuine 404 for an
+    invalid or expired search URL, so refetching it just wastes retries.
+    """
+    title = soup.find("title")
+    title_text = title.get_text() if title else ""
+    if "find the place you were looking for" in title_text.lower():
+        return True
+    return soup.find("link", href=re.compile("pagenotfound")) is not None
+
+
 def _extract_search_results(soup: BeautifulSoup) -> Dict[str, Any]:
     data_script = soup.find("script", id="__NEXT_DATA__")
     if not data_script or not data_script.string:
+        # A genuine 404 page won't gain __NEXT_DATA__ on retry, so surface a
+        # distinct error (which the caller's retry loop does NOT retry) instead
+        # of the transient "embedded search data" soft-block message.
+        if _is_rightmove_not_found(soup):
+            raise RightmoveError(
+                "Rightmove returned a page-not-found page; the search URL is "
+                "invalid or expired"
+            )
         raise RightmoveError("Could not locate embedded search data on the page")
     try:
         parsed = json.loads(data_script.string)
@@ -355,6 +376,16 @@ def _extract_page_model(html: str) -> Dict[str, Any]:
     """Extract PAGE_MODEL JSON from a Rightmove property detail page."""
     match = _PAGE_MODEL_RE.search(html)
     if not match:
+        # Some detail pages (commercial / land listings, and Rightmove's newer
+        # Next.js layout) render a real page that never carries window.PAGE_MODEL.
+        # Those won't gain it on retry, so raise a distinct error the retry loop
+        # in fetch_listing does NOT retry, rather than spending five refetches
+        # treating it as a transient bot-challenge.
+        if 'id="__NEXT_DATA__"' in html:
+            raise RightmoveError(
+                "Rightmove listing uses an unsupported page format (no PAGE_MODEL; "
+                "likely a commercial/land listing or the newer __NEXT_DATA__ layout)"
+            )
         raise RightmoveError("Could not locate PAGE_MODEL data on the property page")
     try:
         outer = json.loads(match.group(1))

@@ -69,3 +69,45 @@ def test_persistent_soft_block_raises_after_retries() -> None:
         raise AssertionError("expected RightmoveError after exhausting retries")
 
     assert session.calls == 3
+
+
+_NOT_FOUND_PAGE = (
+    '<html><head><title>Rightmove - We could not find the place you were '
+    'looking for.</title>'
+    '<link href="https://media.rightmove.co.uk/pagenotfound.css" '
+    'rel="stylesheet"></head><body></body></html>'
+)
+
+
+def test_page_not_found_fails_fast_without_retrying() -> None:
+    # A genuine 404 won't gain __NEXT_DATA__ on retry, so it must surface a
+    # distinct error immediately rather than burning the full retry budget.
+    session = _FakeSession([_NOT_FOUND_PAGE, _NOT_FOUND_PAGE, _NOT_FOUND_PAGE])
+
+    try:
+        rm._get_search_results(
+            session=session,
+            url="https://www.rightmove.co.uk/property-for-sale/find.html",
+            timeout=5.0,
+            retry_attempts=3,
+            retry_backoff=0.0,
+        )
+    except rm.RightmoveError as exc:
+        assert "page-not-found" in str(exc)
+    else:  # pragma: no cover - the call must raise
+        raise AssertionError("expected RightmoveError for a not-found page")
+
+    assert session.calls == 1  # not retried
+
+
+def test_detail_without_page_model_but_with_next_data_raises_unsupported() -> None:
+    html = (
+        '<html><head><title>Land for sale</title></head><body>'
+        '<script id="__NEXT_DATA__">{}</script></body></html>'
+    )
+    try:
+        rm._extract_page_model(html)
+    except rm.RightmoveError as exc:
+        assert "unsupported page format" in str(exc)
+    else:  # pragma: no cover - the call must raise
+        raise AssertionError("expected RightmoveError for an unsupported detail page")
