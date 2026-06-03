@@ -96,6 +96,32 @@ def test_build_search_url_with_station():
     assert "minBedrooms=3" in url
 
 
+def test_snap_radius_rounds_up_to_allowed_values():
+    from property_core.rightmove_location import _snap_radius
+
+    # Exact allowed values pass through unchanged.
+    assert _snap_radius(0.25) == 0.25
+    assert _snap_radius(1.0) == 1.0
+    assert _snap_radius(3.0) == 3.0
+    # In-between values round UP to the next allowed radius (cover the request).
+    assert _snap_radius(2.0) == 3.0  # the production page-not-found case
+    assert _snap_radius(1.5) == 3.0
+    assert _snap_radius(0.3) == 0.5
+    # Beyond the max snaps to Rightmove's 40-mile ceiling.
+    assert _snap_radius(100.0) == 40.0
+
+
+def test_build_search_url_snaps_invalid_radius():
+    """radius=2 is not a value Rightmove accepts (it serves a page-not-found),
+    so it must be snapped to a valid radius (3) in the URL."""
+    api = RightmoveLocationAPI(rate_limit_delay=0)
+    payload = {"matches": [{"type": "STATION", "id": "4646"}]}
+    with patch("property_core.rightmove_location.requests.get", return_value=_mock_response(payload)):
+        url = api.build_search_url(station="Hitchin Station", radius=2)
+    assert "radius=3.0" in url
+    assert "radius=2" not in url
+
+
 def test_build_search_url_requires_exactly_one_anchor():
     api = RightmoveLocationAPI(rate_limit_delay=0)
     with pytest.raises(ValueError, match="exactly one"):

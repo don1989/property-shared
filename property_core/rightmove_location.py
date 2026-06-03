@@ -34,6 +34,21 @@ _BUILDING_TYPES = {
     "T": "terraced",
 }
 
+# Rightmove only accepts a fixed set of search radii (miles); any other value
+# (e.g. 2) makes it serve its "page not found" page rather than results. Snap a
+# requested radius UP to the nearest allowed value so the search covers at least
+# the area asked for, callers geo-filter the returned listings to the exact
+# mileage afterwards, so a slightly wider fetch is harmless. 0 = "this area only".
+_RIGHTMOVE_RADII = (0.0, 0.25, 0.5, 1.0, 3.0, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0)
+
+
+def _snap_radius(radius: float) -> float:
+    """Round a requested radius up to the nearest radius Rightmove accepts."""
+    for allowed in _RIGHTMOVE_RADII:
+        if radius <= allowed:
+            return allowed
+    return _RIGHTMOVE_RADII[-1]
+
 
 class RightmoveLocationAPI:
     """Client for Rightmove's location autocomplete API."""
@@ -217,7 +232,7 @@ class RightmoveLocationAPI:
         if max_bedrooms is not None:
             params["maxBedrooms"] = max_bedrooms
         if radius is not None:
-            params["radius"] = radius
+            params["radius"] = _snap_radius(radius)
         if sort_by:
             code = _SORT_TYPES.get(sort_by)
             if code is not None:
